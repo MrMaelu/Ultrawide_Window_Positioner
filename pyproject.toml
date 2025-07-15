@@ -1,0 +1,14 @@
+[project]
+name = "ultrawide-window-positioner"
+version = "0.5.0"
+description = "Application to manage window position, size and always-on-top status."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "mss>=10.0.0",
+    "pillow>=11.3.0",
+    "pygetwindow>=0.0.9",
+    "pywin32>=311",
+    "pywinstyles>=1.8",
+    "requests>=2.32.4",
+]

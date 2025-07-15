@@ -1,0 +1,47 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+*.whl
+*.spec
+
+# Virtual environments
+.venv/
+env/
+venv/
+
+# Editors and IDEs
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Windows files
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*.orig
+tmp_*
+
+# Application specific
+config_*.ini
+test.py
+configs
+settings.json
+assets
+_assets
+*client_secrets.py
+layout_config.ini
