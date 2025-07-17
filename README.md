@@ -6,6 +6,8 @@
 #### Change position and size, set always-on-top and remove titlebar.
 #### Borderless windowed without fullscreen.
 
+***Note: Windows only. No current plan for Linux support.***
+
 ## Features:
 #### - Create and apply window configurations.  (Stored as 'config_*.ini' files.)
 #### - Visual preview of the selected configuration's layout.
