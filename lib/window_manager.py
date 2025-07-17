@@ -245,18 +245,22 @@ class WindowManager:
                         continue
                     cleaned_title = clean_window_title(title, sanitize=True)
                     if cleaned_section in cleaned_title:
-                        window = gw.getWindowsWithTitle(title)[0]
-                        matching_windows.append({
-                            'config_name': section,
-                            'window': window,
-                            'hwnd': window._hWnd
-                        })
-                        window_exists = True
-                        break
-                        
+                        title_matches = gw.getWindowsWithTitle(title)
+                        for i, title_match in enumerate(title_matches):
+                            cleaned_title_match = clean_window_title(title_match.title, sanitize=True)
+                            if cleaned_title_match == cleaned_section:
+                                window = title_matches[i]
+                                matching_windows.append({
+                                    'config_name': section,
+                                    'window': window,
+                                    'hwnd': window._hWnd
+                                })
+                                window_exists = True
+                                break
+
                 if not window_exists:
                     missing_windows.append(section)
-                    
+
             return matching_windows, missing_windows
         except Exception as e:
             print(f"Error finding matching windows: {e}")
