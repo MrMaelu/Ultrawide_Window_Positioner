@@ -229,7 +229,7 @@ class WindowManager:
     def find_matching_windows(self, config):
         matching_windows = []
         missing_windows = []
-        
+
         try:
             if not config or len(config.sections()) == 0:
                 return matching_windows, missing_windows

@@ -217,8 +217,8 @@ class ConfigManager:
                           & win32con.WS_CAPTION)
             is_topmost = (window._hWnd == win32gui.GetForegroundWindow())
             return {
-                'position': f'{window.left},{window.top}',
-                'size': f'{window.width},{window.height}',
+                'position': f'{max(-10, window.left)},{max(-10, window.top)}',
+                'size': f'{max(250, window.width)},{max(250, window.height)}',
                 'always_on_top': str(is_topmost).lower(),
                 'titlebar': str(has_titlebar).lower(),
                 'original_title': window_title,

@@ -78,11 +78,11 @@ class LayoutDefaults:
 
 class UIConstants:
     # Window dimensions
-    WINDOW_WIDTH = 850
-    WINDOW_HEIGHT = 530
+    WINDOW_WIDTH = 900
+    WINDOW_HEIGHT = 500
     COMPACT_WIDTH = 180
     COMPACT_HEIGHT = 250
-    BUTTON_WIDTH = 100
+    BUTTON_WIDTH = 215
     COMPACT_BUTTON_WIDTH = 80
     CANVAS_HEIGHT = 240
     TASKBAR_HEIGHT = 48

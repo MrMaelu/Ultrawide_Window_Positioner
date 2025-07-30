@@ -7,7 +7,7 @@ from ctypes import windll
 import tkinter.messagebox as messagebox
 
 # Local imports
-from lib.layout import TkGUIManager
+from lib.layout_ctk import CtkGuiManager
 from lib.constants import UIConstants
 from lib.asset_manager import AssetManager
 from lib.window_manager import WindowManager
@@ -60,16 +60,16 @@ class ApplicationState:
 
                     self.applied_config = config
 
-                    child.configure(style="Active.TButton", text="Reset config")
+                    child.configure(text="Reset config")
                     self.app.info_label['text'] = f"Active config: {selected_config_shortname}"
-                    self.app.aot_button.configure(style='TButton', state=tk.NORMAL)
+                    self.app.aot_button.configure(state=tk.NORMAL)
 
                 elif child.cget("text") == "Reset config" and not reapply:
                     self.applied_config = None
                     self.window_manager.reset_all_windows()
-                    child.configure(style="TButton", text="Apply config")
+                    child.configure(text="Apply config")
                     self.app.info_label['text'] = f""
-                    self.app.aot_button.configure(style='Disabled.TButton', state=tk.DISABLED)
+                    self.app.aot_button.configure(state=tk.DISABLED)
                     self.app.reapply.set(0)
 
         if self.applied_config:
@@ -97,7 +97,7 @@ class ApplicationState:
         self.update_always_on_top_status()
 
     def create_config(self):
-        self.app.create_config_ui(self.app.root,
+        self.app.create_config_ui(self.app,
             self.window_manager.get_all_window_titles(),
             self.config_manager.save_window_config,
             self.config_manager.collect_window_settings,
@@ -130,7 +130,7 @@ class ApplicationState:
         self.app.reapply.set(0)
     
     def on_config_select(self, event):
-        selected_value = event.widget.get()
+        selected_value = event.get()
         if selected_value in self.config_names:
             idx = self.config_names.index(selected_value)
             selected_config = self.config_files[idx]
@@ -181,9 +181,9 @@ class ApplicationState:
         self.app.use_images = not self.app.use_images
         for child in self.app.buttons_2_container.winfo_children():
             if child.cget("text") == "Toggle images" and self.app.use_images:
-                child.configure(style="Active.TButton", text="Toggle images")
+                child.configure(text="Toggle images")
             elif child.cget("text") == "Toggle images" and not self.app.use_images:
-                child.configure(style="TButton", text="Toggle images")
+                child.configure(text="Toggle images")
 
         self.save_settings()
         _, missing_windows = self.window_manager.find_matching_windows(self.config)
@@ -192,7 +192,7 @@ class ApplicationState:
     def start_auto_reapply(self):
         if self.app.reapply.get():
             self.auto_reapply()
-        self.app.root.after(500, self.start_auto_reapply)
+        self.app.after(500, self.start_auto_reapply)
 
 ######################
 
@@ -260,7 +260,7 @@ class ApplicationState:
 
     # Download screenshots from IGDB
     def download_screenshots(self):
-            self.app.image_download_button.config(state='disabled', style='Disabled.TButton')
+            self.app.image_download_button.config(state='disabled')
             search_titles = set()
 
             # Getting the titles from all config files
@@ -291,7 +291,7 @@ class ApplicationState:
                 if self.app.info_label.winfo_exists():
                     self.app.info_label['text'] = f"Image download complete"
 
-            self.app.image_download_button.config(state='enabled', style='TButton')
+            self.app.image_download_button.config(state='enabled')
 
     # Take a screenshot of any detected window for the currently loaded config
     def take_screenshot(self):
@@ -303,7 +303,7 @@ class ApplicationState:
                 image_path = os.path.join(self.assets_dir, f"{filename}.jpg")
                 self.asset_manager.capture_window(hwnd=hwnd, save_path=image_path)
         
-            self.asset_manager.bring_to_front(hwnd=self.app.root.winfo_id())
+            self.asset_manager.bring_to_front(hwnd=self.app.winfo_id())
 
     def update_always_on_top_status(self):
         try:
@@ -356,11 +356,11 @@ class ApplicationState:
     def update_config_list(self, config=None):
         self.config_files, self.config_names = self.config_manager.list_config_files()
         if self.config_files and self.config_names:
-            self.app.combo_box['values'] = self.config_names
+            self.app.combo_box.configure(values=self.config_names)
             self.app.combo_box.set(config or self.config_names[0])
-            self.app.combo_box.event_generate("<<ComboboxSelected>>")
+            self.on_config_select(self.app.combo_box)
         else:
-            self.app.combo_box['values'] = []
+            self.app.combo_box.configure(values=[])
             self.app.combo_box.set('')
             if self.app.layout_frame:
                 self.app.layout_frame.destroy()
@@ -375,8 +375,7 @@ class ApplicationState:
         state.asset_manager = AssetManager(client_id=self.CLIENT_ID, client_secret=self.CLIENT_SECRET, client_info_missing=self.client_info_missing)
 
 
-def load_tk_GUI():
-    root = tk.Tk()
+def load_GUI():
     callbacks = {
         "apply_config": state.apply_settings,
         "create_config": state.create_config,
@@ -394,7 +393,7 @@ def load_tk_GUI():
         "auto_reapply": state.start_auto_reapply,
     }
 
-    app = TkGUIManager(root, callbacks=callbacks, compact=state.compact, is_admin=state.is_admin, use_images=state.use_images, snap=state.snap_side, client_info_missing=state.client_info_missing)
+    app = CtkGuiManager(callbacks=callbacks, compact=state.compact, is_admin=state.is_admin, use_images=state.use_images, snap=state.snap_side, client_info_missing=state.client_info_missing)
     state.app = app
     state.app.assets_dir = state.assets_dir
 
@@ -404,7 +403,7 @@ def load_tk_GUI():
     state.update_config_list(default_config)
 
     # Start main GUI
-    state.app.root.mainloop()
+    state.app.mainloop()
 
 if __name__ == "__main__":
     # Get application base path
@@ -435,4 +434,4 @@ if __name__ == "__main__":
     # Load config
     state.compact, state.use_images, state.snap_side = state.config_manager.load_settings()
 
-    load_tk_GUI()
+    load_GUI()

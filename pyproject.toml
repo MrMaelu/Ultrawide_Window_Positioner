@@ -5,6 +5,7 @@ description = "Application to manage window position, size and always-on-top sta
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "customtkinter>=5.2.2",
     "mss>=10.0.0",
     "pillow>=11.3.0",
     "pygetwindow>=0.0.9",
