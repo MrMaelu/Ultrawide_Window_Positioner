@@ -393,7 +393,7 @@ def load_GUI():
         "auto_reapply": state.start_auto_reapply,
     }
 
-    app = CtkGuiManager(callbacks=callbacks, compact=state.compact, is_admin=state.is_admin, use_images=state.use_images, snap=state.snap_side, client_info_missing=state.client_info_missing)
+    app = CtkGuiManager(callbacks=callbacks, compact=state.compact, is_admin=state.is_admin, use_images=state.use_images, snap=state.snap_side, client_info_missing=state.client_info_missing, config_manger=state.config_manager)
     state.app = app
     state.app.assets_dir = state.assets_dir
 

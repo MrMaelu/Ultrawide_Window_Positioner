@@ -10,19 +10,21 @@ import tkinter as tk
 
 # Local imports
 from lib.config_manager import ConfigManager
-from lib.utils import WindowInfo, clean_window_title
+from lib.utils import WindowInfo, clean_window_title, invert_hex_color
 from lib.constants import UIConstants, Colors, Messages, Fonts, LayoutDefaults, WindowStyles
 
 class CtkGuiManager(ctk.CTk):
-    def __init__(self, callbacks=None, compact=False, is_admin=False, use_images=False, snap=0, client_info_missing=True):
+    def __init__(self, callbacks=None, compact=False, is_admin=False, use_images=False, snap=0, client_info_missing=True, config_manger=None):
         super().__init__()
         self.compact_mode = compact
+        self.style_dark = True
+        self.style = "dark"
         
         self.snap = ctk.IntVar(value=snap)
         self.reapply = ctk.IntVar()
 
         self.title("Window Manager")
-        self.configure(bg=Colors.BACKGROUND)
+        #self.configure(bg=Colors.BACKGROUND)
 
         self.res_x = self.winfo_screenwidth()
         self.res_y = self.winfo_screenheight()
@@ -61,33 +63,66 @@ class CtkGuiManager(ctk.CTk):
 
         self.layout_number = 0
 
-        self.setup_styles()
+        self.config_manager = config_manger
+        
+        self.setup_styles(toggle=False)
         self.create_layout()
         self.manage_image_buttons(destroy=False)
         self.after(100, self.apply_titlebar_style)
 
-    def setup_styles(self):
-        ctk.set_appearance_mode("dark")
+    def setup_styles(self, toggle=True):
+        if toggle:
+            self.style_dark = not self.style_dark
+            self.main_frame.destroy()
+            self.create_layout()
+            self.config_files, self.config_names = self.config_manager.list_config_files()
+            if self.config_files and self.config_names:
+                self.combo_box.configure(values=self.config_names)
+                self.combo_box.set(self.config_names[0])
+                self.callbacks["config_selected"](self.combo_box)
+            else:
+                self.combo_box.configure(values=[])
+                self.combo_box.set('')
+                if self.layout_frame:
+                    self.layout_frame.destroy()
+
+        if self.style_dark:
+            self.style = "dark"
+        else:
+            self.style = "light"
+
+        ctk.set_appearance_mode(self.style)
 
     def apply_titlebar_style(self):
         try:
             window = ctypes.windll.user32.GetActiveWindow()
-            pywinstyles.apply_style(window, 'dark')
+            pywinstyles.apply_style(window, self.style)
             pywinstyles.change_header_color(window, color=WindowStyles.TITLE_BAR_COLOR)
             pywinstyles.change_title_color(window, color=WindowStyles.TITLE_TEXT_COLOR)
         except Exception as e:
             print(f"Error applying dark mode to titlebar: {e}")
 
-    def create_button(self, parent, text, command):
-        return ctk.CTkButton(
+    def create_button(self,
             parent,
-            text=text,
-            command=command,
+            text,
+            command,
             width=UIConstants.BUTTON_WIDTH,
             state=ctk.NORMAL,
             fg_color=Colors.BUTTON_NORMAL,
             hover_color=Colors.BUTTON_HOVER,
+            text_color=Colors.TEXT_NORMAL,
             border_width=1
+            ):
+        return ctk.CTkButton(
+            parent,
+            text=text,
+            command=command,
+            width=width,
+            state=state,
+            fg_color=fg_color if self.style_dark else invert_hex_color(fg_color),
+            hover_color=hover_color if self.style_dark else invert_hex_color(hover_color),
+            text_color=text_color if self.style_dark else invert_hex_color(text_color),
+            border_width=border_width
         )
 
     def create_layout(self):
@@ -121,6 +156,9 @@ class CtkGuiManager(ctk.CTk):
         self.combo_box.pack(side=ctk.LEFT)
         self.combo_box.bind("<<ComboboxSelected>>", lambda e: self.callbacks["config_selected"](e))
         self.combo_box.bind("<MouseWheel>", self.on_mousewheel)
+
+        self.theme_button = self.create_button(combo_frame, "light / dark", self.setup_styles, width=(UIConstants.BUTTON_WIDTH / 2))
+        self.theme_button.pack(side=ctk.RIGHT)
 
         # Layout frame placeholder
         self.layout_container = ctk.CTkFrame(self.main_frame)
@@ -274,7 +312,6 @@ class CtkGuiManager(ctk.CTk):
             new_index = min(len(values) - 1, current_index + 1)
         if new_index != current_index:
             self.combo_box.set(values[new_index])
-            # Optionally trigger the selection callback
             if "config_selected" in self.callbacks:
                 self.callbacks["config_selected"](self.combo_box)
 
@@ -282,7 +319,7 @@ class CtkGuiManager(ctk.CTk):
         if self.layout_frame:
             self.layout_frame.destroy()
 
-        self.layout_frame = ScreenLayoutFrame(self.layout_container, self.res_x, self.res_y, windows, assets_dir=self.assets_dir, use_images=self.use_images)
+        self.layout_frame = ScreenLayoutFrame(self.layout_container, self.res_x, self.res_y, windows, assets_dir=self.assets_dir, use_images=self.use_images, style_dark=self.style_dark)
         self.layout_frame.pack(fill=ctk.BOTH, expand=True)
         self.layout_frame.canvas.bind("<MouseWheel>", self.on_mousewheel)
 
@@ -443,6 +480,7 @@ class CtkGuiManager(ctk.CTk):
                                                                 self.winfo_screenheight(),
                                                                 windows,
                                                                 self.assets_dir,
+                                                                style_dark=self.style_dark
                                                                 )
                     self.layout_frame_create_config.pack(expand=True, fill='both')
                 except Exception as e:
@@ -693,14 +731,23 @@ class CtkGuiManager(ctk.CTk):
 
 
 class ScreenLayoutFrame(ctk.CTkFrame):
-    def __init__(self, parent, screen_width, screen_height, windows: List[WindowInfo], assets_dir, use_images=False):
+    def __init__(self, parent, screen_width, screen_height, windows: List[WindowInfo], assets_dir, style_dark=True, use_images=False):
         super().__init__(parent)
         self.windows = windows
+        self.style_dark = style_dark
+
+        self.colors = Colors()
+        if not self.style_dark:
+            for attr in dir(self.colors):
+                if attr.isupper():
+                    value = getattr(self.colors, attr)
+                    if isinstance(value, str):
+                        setattr(self.colors, attr, invert_hex_color(value))
         
         self.assets_dir = assets_dir
         self.use_images = use_images
 
-        self.canvas = tk.Canvas(self, bg=Colors.BACKGROUND)
+        self.canvas = tk.Canvas(self, bg=self.colors.BACKGROUND)
         self.canvas.configure(highlightthickness=0, bd=0)
         self.canvas.pack(fill=ctk.BOTH, expand=True)
         self.canvas.bind("<Configure>", self.on_resize)
@@ -771,7 +818,7 @@ class ScreenLayoutFrame(ctk.CTkFrame):
         # Backgound
         self.canvas.create_rectangle(
             frame_left, frame_top, frame_right, frame_bottom,
-            outline=Colors.WINDOW_BORDER, width=frame_width
+            outline=self.colors.WINDOW_BORDER, width=frame_width
         )
 
         # Taskbar
@@ -780,7 +827,7 @@ class ScreenLayoutFrame(ctk.CTkFrame):
             frame_bottom - UIConstants.TASKBAR_HEIGHT * scale,
             frame_right,
             frame_bottom,
-            fill=Colors.TASKBAR,
+            fill=self.colors.TASKBAR,
             outline=""
         )
 
@@ -791,8 +838,8 @@ class ScreenLayoutFrame(ctk.CTkFrame):
             w = win.width * scale
             h = win.height * scale
 
-            border_color = Colors.WINDOW_BORDER
-            fill_color = Colors.WINDOW_ALWAYS_ON_TOP if win.always_on_top else Colors.WINDOW_NORMAL
+            border_color = self.colors.WINDOW_BORDER
+            fill_color = self.colors.WINDOW_ALWAYS_ON_TOP if win.always_on_top else self.colors.WINDOW_NORMAL
                 
             # Draw window rectangle
             self.canvas.create_rectangle(
@@ -830,7 +877,7 @@ class ScreenLayoutFrame(ctk.CTkFrame):
                 f"AOT:  {'Yes' if win.always_on_top else 'No'}"
             ]
 
-            text_color = Colors.TEXT_NORMAL
+            text_color = self.colors.TEXT_NORMAL
             padding_x = 5
             padding_y = 5
             line_height = 16
@@ -852,7 +899,7 @@ class ScreenLayoutFrame(ctk.CTkFrame):
                     text_y - 2, 
                     text_x + text_width, 
                     text_y + text_height, 
-                    fill=Colors.WINDOW_NORMAL if not win.always_on_top else Colors.WINDOW_ALWAYS_ON_TOP, 
+                    fill=self.colors.WINDOW_NORMAL if not win.always_on_top else self.colors.WINDOW_ALWAYS_ON_TOP,
                     outline=""
                 )
                 
@@ -876,7 +923,7 @@ class ScreenLayoutFrame(ctk.CTkFrame):
                     (y + h - margin_bottom) - 12, 
                     (x + w / 2) + 28,
                     (y + h - margin_bottom) - 26,
-                    fill=Colors.WINDOW_NORMAL if not win.always_on_top else Colors.WINDOW_ALWAYS_ON_TOP, 
+                    fill=self.colors.WINDOW_NORMAL if not win.always_on_top else self.colors.WINDOW_ALWAYS_ON_TOP, 
                     outline=""
                 )
                 
@@ -884,7 +931,7 @@ class ScreenLayoutFrame(ctk.CTkFrame):
                     x + w / 2,
                     y + h - margin_bottom - 20,
                     text="MISSING",
-                    fill=Colors.TEXT_ERROR,
+                    fill=self.colors.TEXT_ERROR,
                     font=Fonts.TEXT_BOLD,
                     justify=ctk.CENTER
                 )
