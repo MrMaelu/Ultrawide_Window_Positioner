@@ -110,7 +110,7 @@ class Colors:
     
     # Window colors
     WINDOW_NORMAL = "#404040"
-    WINDOW_ALWAYS_ON_TOP = "#508050"
+    WINDOW_ALWAYS_ON_TOP = "#306030"
     WINDOW_BORDER = "#050505"
     DIM_BORDER = "#555555"
     
@@ -122,11 +122,12 @@ class Colors:
 
     # Add these for darker backgrounds
     WINDOW_NORMAL_DARK = "#2A2A2A"
-    WINDOW_ALWAYS_ON_TOP_DARK = "#3A3A3A"
+    WINDOW_ALWAYS_ON_TOP_DARK = "#104010"
     WINDOW_MISSING_DARK = "#3F1F1F"
 
     # Buttons
     BUTTON_NORMAL = BACKGROUND
+    BUTTON_HOVER = "#404040"
     BUTTON_ACTIVE = "#205020"
     BUTTON_ACTIVE_HOVER = "#306030"
     BUTTON_DISABLED = WINDOW_NORMAL_DARK

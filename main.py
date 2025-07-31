@@ -8,7 +8,7 @@ import tkinter.messagebox as messagebox
 
 # Local imports
 from lib.layout_ctk import CtkGuiManager
-from lib.constants import UIConstants
+from lib.constants import UIConstants, Colors
 from lib.asset_manager import AssetManager
 from lib.window_manager import WindowManager
 from lib.config_manager import ConfigManager
@@ -60,15 +60,15 @@ class ApplicationState:
 
                     self.applied_config = config
 
-                    child.configure(text="Reset config")
-                    self.app.info_label['text'] = f"Active config: {selected_config_shortname}"
+                    child.configure(text="Reset config", fg_color=Colors.BUTTON_ACTIVE, hover_color=Colors.BUTTON_ACTIVE_HOVER)
+                    self.app.info_label.configure(text=f"Active config: {selected_config_shortname}")
                     self.app.aot_button.configure(state=tk.NORMAL)
 
                 elif child.cget("text") == "Reset config" and not reapply:
                     self.applied_config = None
                     self.window_manager.reset_all_windows()
-                    child.configure(text="Apply config")
-                    self.app.info_label['text'] = f""
+                    child.configure(text="Apply config", fg_color=Colors.BUTTON_NORMAL, hover_color=Colors.BUTTON_HOVER)
+                    self.app.info_label.configure(text=f"")
                     self.app.aot_button.configure(state=tk.DISABLED)
                     self.app.reapply.set(0)
 
@@ -181,9 +181,9 @@ class ApplicationState:
         self.app.use_images = not self.app.use_images
         for child in self.app.buttons_2_container.winfo_children():
             if child.cget("text") == "Toggle images" and self.app.use_images:
-                child.configure(text="Toggle images")
+                child.configure(text="Toggle images", fg_color=Colors.BUTTON_ACTIVE, hover_color=Colors.BUTTON_ACTIVE_HOVER)
             elif child.cget("text") == "Toggle images" and not self.app.use_images:
-                child.configure(text="Toggle images")
+                child.configure(text="Toggle images", fg_color=Colors.BUTTON_NORMAL, hover_color=Colors.BUTTON_HOVER)
 
         self.save_settings()
         _, missing_windows = self.window_manager.find_matching_windows(self.config)
@@ -260,7 +260,7 @@ class ApplicationState:
 
     # Download screenshots from IGDB
     def download_screenshots(self):
-            self.app.image_download_button.config(state='disabled')
+            self.app.image_download_button.configure(state='disabled')
             search_titles = set()
 
             # Getting the titles from all config files
@@ -283,15 +283,15 @@ class ApplicationState:
                 if not os.path.exists(image_path):
                     self.asset_manager.search(title, save_dir=self.assets_dir)
                     if self.app.info_label.winfo_exists():
-                        self.app.info_label['text'] = f"Downloading image for {title}"
+                        self.app.info_label.configure(text=f"Downloading image for {title}")
 
             _, missing_windows = self.window_manager.find_matching_windows(self.config)
             if not self.compact:
                 self.compute_window_layout(self.config, missing_windows)
                 if self.app.info_label.winfo_exists():
-                    self.app.info_label['text'] = f"Image download complete"
+                    self.app.info_label.configure(text=f"Image download complete")
 
-            self.app.image_download_button.config(state='enabled')
+            self.app.image_download_button.configure(state='enabled')
 
     # Take a screenshot of any detected window for the currently loaded config
     def take_screenshot(self):

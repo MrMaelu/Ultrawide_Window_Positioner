@@ -64,7 +64,7 @@ class CtkGuiManager(ctk.CTk):
         self.setup_styles()
         self.create_layout()
         self.manage_image_buttons(destroy=False)
-        self.after(200, self.apply_titlebar_style)
+        self.after(100, self.apply_titlebar_style)
 
     def setup_styles(self):
         ctk.set_appearance_mode("dark")
@@ -77,6 +77,18 @@ class CtkGuiManager(ctk.CTk):
             pywinstyles.change_title_color(window, color=WindowStyles.TITLE_TEXT_COLOR)
         except Exception as e:
             print(f"Error applying dark mode to titlebar: {e}")
+
+    def create_button(self, parent, text, command):
+        return ctk.CTkButton(
+            parent,
+            text=text,
+            command=command,
+            width=UIConstants.BUTTON_WIDTH,
+            state=ctk.NORMAL,
+            fg_color=Colors.BUTTON_NORMAL,
+            hover_color=Colors.BUTTON_HOVER,
+            border_width=1
+        )
 
     def create_layout(self):
         # Main frame
@@ -155,26 +167,14 @@ class CtkGuiManager(ctk.CTk):
         self.buttons_2_container.configure(width=total_buttons_2_width)
 
         for name, command in buttons_1:
-            btn = ctk.CTkButton(self.buttons_1_container,
-                text=name,
-                command=command,
-                width=UIConstants.BUTTON_WIDTH,
-                state=ctk.NORMAL,
-                fg_color=Colors.WINDOW_NORMAL
-            )
+            btn = self.create_button(self.buttons_1_container, text=name, command=command)
             btn.pack(side=ctk.LEFT, fill=ctk.X, expand=False, padx=5, pady=5)
 
         for name, command in buttons_2:
-            btn = ctk.CTkButton(self.buttons_2_container,
-                text=name,
-                command=command,
-                width=UIConstants.BUTTON_WIDTH,
-                state=ctk.NORMAL,
-                fg_color=Colors.WINDOW_NORMAL
-            )
+            btn = self.create_button(self.buttons_2_container, text=name, command=command)
             btn.pack(side=ctk.LEFT, fill=ctk.X, expand=False, padx=5, pady=5)
-            if name == "Toggle images" and self.use_images: btn.configure(text="Toggle images")
-            if name == "Restart as Admin" and self.is_admin: btn.configure(text="Running in admin mode", state=ctk.DISABLED)
+            if name == "Toggle images" and self.use_images: btn.configure(text="Toggle images", fg_color=Colors.BUTTON_ACTIVE, hover_color=Colors.BUTTON_ACTIVE_HOVER)
+            if name == "Restart as Admin" and self.is_admin: btn.configure(text="Running in admin mode", state=ctk.DISABLED, fg_color=Colors.WINDOW_ALWAYS_ON_TOP)
 
         # AOT container
         self.aot_container = ctk.CTkFrame(self.button_frame)
@@ -182,7 +182,7 @@ class CtkGuiManager(ctk.CTk):
         self.aot_frame = ctk.CTkFrame(self.aot_container)
         self.aot_frame.pack(side=ctk.TOP, fill=ctk.X)
 
-        self.aot_button = ctk.CTkButton(self.aot_frame, text="Toggle AOT", command=self.callbacks.get("toggle_AOT"), width=UIConstants.BUTTON_WIDTH, state=ctk.DISABLED, fg_color=Colors.WINDOW_NORMAL)
+        self.aot_button = self.create_button(self.aot_frame, text="Toggle AOT", command=self.callbacks.get("toggle_AOT"))
         self.aot_button.pack(side=ctk.LEFT, fill=ctk.X, expand=False, padx=5, pady=5)
 
         # AOT status label
@@ -217,13 +217,12 @@ class CtkGuiManager(ctk.CTk):
 
 
             # Image download button
-            self.image_download_button = ctk.CTkButton(self.aot_frame, text="Download images", command=self.callbacks.get("download_images"),
-                                                    state=ctk.DISABLED if self.client_info_missing else ctk.NORMAL, width=UIConstants.BUTTON_WIDTH, fg_color=Colors.WINDOW_NORMAL)
-            if self.client_info_missing: self.image_download_button.configure(text="Client info missing")
+            self.image_download_button = self.create_button(self.aot_frame, text="Download images", command=self.callbacks.get("download_images"))
+            if self.client_info_missing: self.image_download_button.configure(text="Client info missing", state=ctk.DISABLED)
             self.image_download_button.pack(side=ctk.LEFT, fill=ctk.X, expand=False, padx=5, pady=5)
 
             # Image folder button
-            self.image_folder_button = ctk.CTkButton(self.aot_frame, text="Open image folder", command=self.callbacks.get("image_folder"), width=UIConstants.BUTTON_WIDTH, fg_color=Colors.WINDOW_NORMAL)
+            self.image_folder_button = self.create_button(self.aot_frame, text="Open image folder", command=self.callbacks.get("image_folder"))
             self.image_folder_button.pack(side=ctk.LEFT, fill=ctk.X, expand=False, padx=5, pady=5)
 
     def setup_managed_text(self):
@@ -397,11 +396,11 @@ class CtkGuiManager(ctk.CTk):
 
                 settings_vars[title] = [pos_var, size_var, aot_var, titlebar_var, name_var]
 
-                ctk.CTkEntry(settings_frame, textvariable=name_var, width=300, font=entry_font).grid(row=row+1, column=0, sticky='w', padx=5, pady=5, columnspan=2)
+                ctk.CTkEntry(settings_frame, textvariable=name_var, width=320, font=entry_font).grid(row=row+1, column=0, sticky='w', padx=5, pady=1, columnspan=4)
                 ctk.CTkEntry(settings_frame, textvariable=pos_var, width=80, font=entry_font).grid(row=row+1, column=2)
                 ctk.CTkEntry(settings_frame, textvariable=size_var, width=80, font=entry_font).grid(row=row+1, column=3)
-                ctk.CTkCheckBox(settings_frame, text="", variable=aot_var, font=entry_font).grid(row=row+1, column=4, sticky='w')
-                ctk.CTkCheckBox(settings_frame, text="", variable=titlebar_var, font=entry_font).grid(row=row+1, column=5, sticky='w')
+                ctk.CTkCheckBox(settings_frame, text="", variable=aot_var, width=80, font=entry_font).grid(row=row+1, column=4, sticky='w')
+                ctk.CTkCheckBox(settings_frame, text="", variable=titlebar_var, width=80, font=entry_font).grid(row=row+1, column=5, sticky='w')
 
             row += 1
             ctk.CTkLabel(settings_frame, text="Config Name: ", font=entry_font).grid(row=row+1, column=2)
@@ -409,11 +408,11 @@ class CtkGuiManager(ctk.CTk):
             ctk.CTkEntry(settings_frame,
                 textvariable=config_name_var,
                 font=entry_font,
-                ).grid(row=row+1, column=3, columnspan=3, sticky='ew')
+                ).grid(row=row+1, column=3, columnspan=3, sticky='ew', pady=(10,0))
 
             layout_container_create_config = ctk.CTkFrame(settings_frame)
-            layout_container_create_config.grid(row=row+4, column=0, columnspan=7, sticky='nsew')
-            settings_frame.rowconfigure(row+3, weight=10)
+            layout_container_create_config.grid(row=row+5, column=0, columnspan=7, sticky='nsew')
+            settings_frame.rowconfigure(row+5, weight=10)
             for col in range(7):
                 settings_frame.columnconfigure(col, weight=1)
             self.layout_frame_create_config = None
@@ -457,7 +456,7 @@ class CtkGuiManager(ctk.CTk):
                 
                 if not len(sorted_windows) in self.auto_align_layouts:
                     in_defaults = '' if len(sorted_windows) not in LayoutDefaults.DEFAULT_LAYOUTS else ' Try to reset to defaults.'
-                    self.ratio_label['text'] = (f"No auto-alignment available for {len(sorted_windows)} windows. {in_defaults}")
+                    self.ratio_label.configure(text=f"No auto-alignment available for {len(sorted_windows)} windows. {in_defaults}")
                     return
                 layout_configs = self.auto_align_layouts[len(sorted_windows)]
                 layout_max = len(layout_configs) - 1
@@ -596,22 +595,22 @@ class CtkGuiManager(ctk.CTk):
                 preset_label_text = f"Preset {self.layout_number + 1}/{layout_max + 1}\t\t"
 
                 if len(sorted_windows) == 4:
-                    self.ratio_label['text'] = (
+                    self.ratio_label.configure(text=
                         f"{preset_label_text} "
                     )
                 elif len(sorted_windows) == 3:
-                    self.ratio_label['text'] = (
+                    self.ratio_label.configure(text=
                         f"{preset_label_text}"
                         f"Aspect: {numerator}/{denominator} "
                         f"Left {weight_1.numerator}/{weight_1.denominator} Right {weight_2.numerator}/{weight_2.denominator}"
                     )
                 elif len(sorted_windows) == 2:
-                    self.ratio_label['text'] = (
+                    self.ratio_label.configure(text=
                         f"{preset_label_text}"
                         f"{side_text:10} {numerator}/{denominator}"
                     )
                 else:
-                    self.ratio_label['text'] = (
+                    self.ratio_label.configure(text=
                         f"{preset_label_text}"
                         f"{side_text:10} {numerator}/{denominator}"
                     )
@@ -644,11 +643,12 @@ class CtkGuiManager(ctk.CTk):
                     self.auto_align_layouts = ConfigManager.load_or_create_layouts(reset=True)
 
             update_layout_frame()
-            ctk.CTkButton(settings_frame, text="Auto align", command=auto_position, width=UIConstants.BUTTON_WIDTH, fg_color=Colors.WINDOW_NORMAL).grid(row=row+1, column=0, sticky='w', padx=5, pady=5)
+            self.create_button(settings_frame, text="Auto align", command=auto_position).grid(row=row+1, column=0, sticky='w', padx=5, pady=(10,0))
+            self.create_button(settings_frame, text="Update drawing", command=update_layout_frame).grid(row=row+2, column=0, sticky='w', padx=5, pady=(5,0))
+            self.create_button(settings_frame, text="Save Config", command=on_save).grid(row=row+2, column=3, columnspan=3, sticky='ew', padx=0, pady=(5,0))
+
             self.ratio_label = ctk.CTkLabel(settings_frame, text="", font=entry_font, width=UIConstants.BUTTON_WIDTH)
-            self.ratio_label.grid(row=row+3, column=0, columnspan=6, sticky='w', padx=5, pady=5)
-            ctk.CTkButton(settings_frame, text="Update drawing", command=update_layout_frame, width=UIConstants.BUTTON_WIDTH, fg_color=Colors.WINDOW_NORMAL).grid(row=row+2, column=0, sticky='w', padx=5, pady=5)
-            ctk.CTkButton(settings_frame, text="Save Config", command=on_save, width=UIConstants.BUTTON_WIDTH, fg_color=Colors.WINDOW_NORMAL).grid(row=row+2, column=2, columnspan=4, sticky='ew', padx=5, pady=5)
+            self.ratio_label.grid(row=row+3, column=0, columnspan=6, sticky='w')
 
             config_win.geometry(f"{UIConstants.WINDOW_WIDTH}x{UIConstants.WINDOW_HEIGHT}")
 
@@ -686,10 +686,10 @@ class CtkGuiManager(ctk.CTk):
                 font=entry_font
             )
 
-            cb.pack(anchor='w')
+            cb.pack(anchor='w', padx=10, pady=5)
             switches[title] = var
 
-        ctk.CTkButton(selection_frame, text="Confirm Selection", command=confirm_selection, width=45, fg_color=Colors.WINDOW_NORMAL).pack()
+        self.create_button(selection_frame, text="Confirm Selection", command=confirm_selection).pack(padx=10, pady=10)
 
 
 class ScreenLayoutFrame(ctk.CTkFrame):
