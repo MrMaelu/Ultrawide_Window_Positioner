@@ -2,7 +2,7 @@ import os
 import sys
 import importlib
 import threading
-import tkinter as tk
+import customtkinter as ctk
 from ctypes import windll
 import tkinter.messagebox as messagebox
 
@@ -12,7 +12,7 @@ from lib.constants import UIConstants, Colors
 from lib.asset_manager import AssetManager
 from lib.window_manager import WindowManager
 from lib.config_manager import ConfigManager
-from lib.utils import WindowInfo, clean_window_title
+from lib.utils import WindowInfo, clean_window_title, invert_hex_color
 
 class ApplicationState:
     def __init__(self):
@@ -31,9 +31,10 @@ class ApplicationState:
         
         # UI state
         self.is_admin = False
-        self.compact = False
+        self.compact = 0
         self.snap_side = 0
-        self.use_images = False
+        self.use_images = 0
+        self.details = 0
         
         # Screen info
         self.screen_width = 1920
@@ -62,14 +63,14 @@ class ApplicationState:
 
                     child.configure(text="Reset config", fg_color=Colors.BUTTON_ACTIVE, hover_color=Colors.BUTTON_ACTIVE_HOVER)
                     self.app.info_label.configure(text=f"Active config: {selected_config_shortname}")
-                    self.app.aot_button.configure(state=tk.NORMAL)
+                    self.app.aot_button.configure(state=ctk.NORMAL)
 
                 elif child.cget("text") == "Reset config" and not reapply:
                     self.applied_config = None
                     self.window_manager.reset_all_windows()
                     child.configure(text="Apply config", fg_color=Colors.BUTTON_NORMAL, hover_color=Colors.BUTTON_HOVER)
                     self.app.info_label.configure(text=f"")
-                    self.app.aot_button.configure(state=tk.DISABLED)
+                    self.app.aot_button.configure(state=ctk.DISABLED)
                     self.app.reapply.set(0)
 
         if self.applied_config:
@@ -143,14 +144,17 @@ class ApplicationState:
                 self.update_managed_windows_list(self.config)
 
     def toggle_compact_mode(self=None, startup=False):
-        self.app.toggle_compact(startup)
-        self.compact = self.app.compact_mode
-        self.save_settings()
-        if self.app.compact_mode:
-            self.update_managed_windows_list(self.config)
-        else:
-            _, missing_windows = self.window_manager.find_matching_windows(self.config)
-            self.compute_window_layout(self.config, missing_windows)
+        try:
+            self.app.toggle_compact(startup)
+            self.compact = self.app.compact_mode
+            self.save_settings()
+            if self.app.compact_mode:
+                self.update_managed_windows_list(self.config)
+            else:
+                _, missing_windows = self.window_manager.find_matching_windows(self.config)
+                self.compute_window_layout(self.config, missing_windows)
+        except Exception as e:
+            print(f"Toggle compact failed: {e}")
 
     def delete_config(self):
         current_name = self.app.combo_box.get().strip()
@@ -178,13 +182,21 @@ class ApplicationState:
         threading.Thread(target=self.download_screenshots, daemon=True).start()
                         
     def toggle_images(self):
-        self.app.use_images = not self.app.use_images
-        for child in self.app.buttons_2_container.winfo_children():
-            if child.cget("text") == "Toggle images" and self.app.use_images:
-                child.configure(text="Toggle images", fg_color=Colors.BUTTON_ACTIVE, hover_color=Colors.BUTTON_ACTIVE_HOVER)
-            elif child.cget("text") == "Toggle images" and not self.app.use_images:
-                child.configure(text="Toggle images", fg_color=Colors.BUTTON_NORMAL, hover_color=Colors.BUTTON_HOVER)
-
+        #self.app.use_images = not self.app.use_images
+        """
+        if self.app.use_images:
+            self.app.toggle_images_button.configure(
+                fg_color=Colors.BUTTON_ACTIVE,
+                hover_color=Colors.BUTTON_ACTIVE_HOVER,
+                text_color=Colors.TEXT_NORMAL,
+                )
+        elif not self.app.use_images:
+            self.app.toggle_images_button.configure(
+                fg_color=Colors.BUTTON_NORMAL if self.app.style_dark else invert_hex_color(Colors.BUTTON_NORMAL),
+                hover_color=Colors.BUTTON_HOVER if self.app.style_dark else invert_hex_color(Colors.BUTTON_HOVER),
+                text_color=Colors.TEXT_NORMAL if self.app.style_dark else invert_hex_color(Colors.TEXT_NORMAL),
+                )
+        """
         self.save_settings()
         _, missing_windows = self.window_manager.find_matching_windows(self.config)
         self.compute_window_layout(self.config, missing_windows)
@@ -193,6 +205,11 @@ class ApplicationState:
         if self.app.reapply.get():
             self.auto_reapply()
         self.app.after(500, self.start_auto_reapply)
+
+    def window_details(self):
+        self.save_settings()
+        self.on_config_select(self.app.combo_box)
+
 
 ######################
 
@@ -366,7 +383,7 @@ class ApplicationState:
                 self.app.layout_frame.destroy()
 
     def save_settings(self):
-        self.config_manager.save_settings(self.compact, self.app.use_images, self.app.snap.get())
+        self.config_manager.save_settings(self.app.compact_mode, self.app.use_images.get(), self.app.snap.get(), self.app.details.get())
 
     def load_managers(self):
         # Checking if the IGDB client info is added
@@ -391,9 +408,10 @@ def load_GUI():
         "screenshot": state.take_screenshot,
         "snap": state.save_settings,
         "auto_reapply": state.start_auto_reapply,
+        "details": state.window_details
     }
 
-    app = CtkGuiManager(callbacks=callbacks, compact=state.compact, is_admin=state.is_admin, use_images=state.use_images, snap=state.snap_side, client_info_missing=state.client_info_missing, config_manger=state.config_manager)
+    app = CtkGuiManager(callbacks=callbacks, compact=state.compact, is_admin=state.is_admin, use_images=state.use_images, snap=state.snap_side, details=state.details, client_info_missing=state.client_info_missing, config_manger=state.config_manager)
     state.app = app
     state.app.assets_dir = state.assets_dir
 
@@ -432,6 +450,6 @@ if __name__ == "__main__":
         state.is_admin = False
     
     # Load config
-    state.compact, state.use_images, state.snap_side = state.config_manager.load_settings()
+    state.compact, state.use_images, state.snap_side , state.details = state.config_manager.load_settings()
 
     load_GUI()

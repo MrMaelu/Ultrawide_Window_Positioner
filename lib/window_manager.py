@@ -12,14 +12,13 @@ class WindowManager:
         self.topmost_windows = set()
         self._window_states = {}
         self.ignored_windows = [
-            "window manager",
+            "ultrawide window positioner",
             "program manager",
             "windows input experience",
             "microsoft text input application",
             "settings",
             "windows shell experience host"
         ]
-
 
     def apply_window_config(self, config, hwnd, window_name=None):
         if self.is_valid_window(hwnd):

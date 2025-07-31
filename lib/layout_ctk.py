@@ -14,17 +14,19 @@ from lib.utils import WindowInfo, clean_window_title, invert_hex_color
 from lib.constants import UIConstants, Colors, Messages, Fonts, LayoutDefaults, WindowStyles
 
 class CtkGuiManager(ctk.CTk):
-    def __init__(self, callbacks=None, compact=False, is_admin=False, use_images=False, snap=0, client_info_missing=True, config_manger=None):
+    def __init__(self, callbacks=None, compact=0, is_admin=False, use_images=0, snap=0, client_info_missing=True, config_manger=None, details=0):
         super().__init__()
         self.compact_mode = compact
-        self.style_dark = True
+        self.style_dark = ctk.IntVar(value=1)
         self.style = "dark"
         
         self.snap = ctk.IntVar(value=snap)
         self.reapply = ctk.IntVar()
-
-        self.title("Window Manager")
-        #self.configure(bg=Colors.BACKGROUND)
+        self.details = ctk.IntVar(value=details)
+        self.use_images = ctk.IntVar(value=use_images)
+        
+        self.application_name = "Ultrawide Window Positioner"
+        self.title(self.application_name)
 
         self.res_x = self.winfo_screenwidth()
         self.res_y = self.winfo_screenheight()
@@ -56,7 +58,6 @@ class CtkGuiManager(ctk.CTk):
         self.callbacks = callbacks or {}
 
         self.layout_frame_create_config = None
-        self.use_images = use_images
         self.assets_dir = None
 
         self.auto_align_layouts = ConfigManager.load_or_create_layouts()
@@ -64,17 +65,25 @@ class CtkGuiManager(ctk.CTk):
         self.layout_number = 0
 
         self.config_manager = config_manger
+
+        self.buttons = []
         
         self.setup_styles(toggle=False)
         self.create_layout()
-        self.manage_image_buttons(destroy=False)
+        self.manage_image_buttons()
         self.after(100, self.apply_titlebar_style)
 
     def setup_styles(self, toggle=True):
+        if self.style_dark.get():
+            self.style = "dark"
+        else:
+            self.style = "light"
+
         if toggle:
-            self.style_dark = not self.style_dark
             self.main_frame.destroy()
             self.create_layout()
+            self.manage_image_buttons()
+
             self.config_files, self.config_names = self.config_manager.list_config_files()
             if self.config_files and self.config_names:
                 self.combo_box.configure(values=self.config_names)
@@ -86,19 +95,15 @@ class CtkGuiManager(ctk.CTk):
                 if self.layout_frame:
                     self.layout_frame.destroy()
 
-        if self.style_dark:
-            self.style = "dark"
-        else:
-            self.style = "light"
-
         ctk.set_appearance_mode(self.style)
+        self.apply_titlebar_style()
 
     def apply_titlebar_style(self):
         try:
             window = ctypes.windll.user32.GetActiveWindow()
             pywinstyles.apply_style(window, self.style)
-            pywinstyles.change_header_color(window, color=WindowStyles.TITLE_BAR_COLOR)
-            pywinstyles.change_title_color(window, color=WindowStyles.TITLE_TEXT_COLOR)
+            pywinstyles.change_header_color(window, color=WindowStyles.TITLE_BAR_COLOR if self.style_dark.get() else invert_hex_color(WindowStyles.TITLE_BAR_COLOR))
+            pywinstyles.change_title_color(window, color=WindowStyles.TITLE_TEXT_COLOR if self.style_dark.get() else invert_hex_color(WindowStyles.TITLE_TEXT_COLOR))
         except Exception as e:
             print(f"Error applying dark mode to titlebar: {e}")
 
@@ -113,17 +118,19 @@ class CtkGuiManager(ctk.CTk):
             text_color=Colors.TEXT_NORMAL,
             border_width=1
             ):
-        return ctk.CTkButton(
+        button = ctk.CTkButton(
             parent,
             text=text,
             command=command,
             width=width,
             state=state,
-            fg_color=fg_color if self.style_dark else invert_hex_color(fg_color),
-            hover_color=hover_color if self.style_dark else invert_hex_color(hover_color),
-            text_color=text_color if self.style_dark else invert_hex_color(text_color),
+            fg_color=fg_color if self.style_dark.get() else invert_hex_color(fg_color),
+            hover_color=hover_color if self.style_dark.get() else invert_hex_color(hover_color),
+            text_color=text_color if self.style_dark.get() else invert_hex_color(text_color),
             border_width=border_width
         )
+        self.buttons.append(button)
+        return button
 
     def create_layout(self):
         # Main frame
@@ -141,24 +148,32 @@ class CtkGuiManager(ctk.CTk):
 
         # Screen resolution label
         self.resolution_label = ctk.CTkLabel(header_frame, text=f"{self.res_x} x {self.res_y}")
-        self.resolution_label.pack(side=ctk.LEFT, fill=ctk.X)
+        self.resolution_label.pack(side=ctk.LEFT, fill=ctk.X, padx=10)
 
         # User / Admin mode label
         app_mode = "Admin" if self.is_admin else "User"
-        self.admin_label = ctk.CTkLabel(header_frame, text=f"{app_mode} mode")
-        self.admin_label.pack(side=ctk.RIGHT, fill=ctk.X)
+        self.admin_label = ctk.CTkLabel(header_frame, text=f"{app_mode} mode", text_color=Colors.ADMIN_ENABLED if self.is_admin else Colors.TEXT_NORMAL)
+        self.admin_label.pack(side=ctk.RIGHT, fill=ctk.X, padx=10)
         
         # Config selection menu
-        combo_frame = header_frame = ctk.CTkFrame(self.main_frame)
-        combo_frame.pack(side=ctk.TOP, fill=ctk.X)
+        self.combo_frame = header_frame = ctk.CTkFrame(self.main_frame)
+        self.combo_frame.pack(side=ctk.TOP, fill=ctk.X)
         
-        self.combo_box = ctk.CTkComboBox(combo_frame, width=300)
+        self.combo_box = ctk.CTkComboBox(self.combo_frame, width=300, command=lambda _: self.callbacks["config_selected"](self.combo_box), state="readonly")
         self.combo_box.pack(side=ctk.LEFT)
-        self.combo_box.bind("<<ComboboxSelected>>", lambda e: self.callbacks["config_selected"](e))
         self.combo_box.bind("<MouseWheel>", self.on_mousewheel)
 
-        self.theme_button = self.create_button(combo_frame, "light / dark", self.setup_styles, width=(UIConstants.BUTTON_WIDTH / 2))
-        self.theme_button.pack(side=ctk.RIGHT)
+        self.admin_button = self.create_button(
+            self.combo_frame,
+            command=self.callbacks.get("restart_as_admin"),
+            text="Restart as Admin" if not self.is_admin else "Admin mode",
+            state=ctk.DISABLED if self.is_admin else ctk.NORMAL,
+            fg_color=Colors.BUTTON_ACTIVE if self.is_admin else Colors.BUTTON_NORMAL,
+            text_color=Colors.TEXT_NORMAL,
+            )
+
+        self.theme_switch = ctk.CTkSwitch(self.combo_frame, text="light / dark", command=self.setup_styles, variable=self.style_dark, progress_color="black", fg_color="white")
+        self.buttons.append(self.theme_switch)
 
         # Layout frame placeholder
         self.layout_container = ctk.CTkFrame(self.main_frame)
@@ -171,48 +186,16 @@ class CtkGuiManager(ctk.CTk):
 
         # Button section
         self.button_frame = ctk.CTkFrame(self.main_frame)
-        self.button_frame.pack(side=ctk.TOP, fill=ctk.X)
+        self.button_frame.pack(side=ctk.TOP, fill=ctk.BOTH, expand=True)
 
         # Main buttons frame
         main_buttons = ctk.CTkFrame(self.button_frame)
-        main_buttons.pack(side=ctk.TOP, fill=ctk.X)
+        main_buttons.pack(side=ctk.TOP, fill=ctk.BOTH, expand=True)
         
-        # Buttons
-        buttons_1 = [
-            ("Apply config", self.callbacks.get("apply_config")),
-            ("Create config", self.callbacks.get("create_config")),
-            ("Delete config", self.callbacks.get("delete_config")),
-            ("Open config folder", self.callbacks.get("open_config_folder")),
-        ]
-        
-        buttons_2 = [
-            ("Toggle images", self.callbacks.get("toggle_images")),
-            ("Toggle compact", self.callbacks.get("toggle_compact") or self.toggle_compact),
-            ("Take screenshots", self.callbacks.get("screenshot")),
-            ("Restart as Admin", self.callbacks.get("restart_as_admin")),
-        ]
-
-        # First line of buttons
         self.buttons_1_container = ctk.CTkFrame(main_buttons)
-        self.buttons_1_container.pack(side=ctk.TOP, fill=ctk.X, expand=True, anchor=ctk.CENTER)
-        total_buttons_1_width = len(buttons_1) * 100
-        self.buttons_1_container.configure(width=total_buttons_1_width)
-
-        # Second line of buttons
+        self.buttons_1_container.pack(side=ctk.TOP, fill=ctk.BOTH, expand=True, anchor=ctk.CENTER)
         self.buttons_2_container = ctk.CTkFrame(main_buttons)
-        self.buttons_2_container.pack(side=ctk.TOP, fill=ctk.X, expand=True, anchor=ctk.CENTER)
-        total_buttons_2_width = len(buttons_2) * 100
-        self.buttons_2_container.configure(width=total_buttons_2_width)
-
-        for name, command in buttons_1:
-            btn = self.create_button(self.buttons_1_container, text=name, command=command)
-            btn.pack(side=ctk.LEFT, fill=ctk.X, expand=False, padx=5, pady=5)
-
-        for name, command in buttons_2:
-            btn = self.create_button(self.buttons_2_container, text=name, command=command)
-            btn.pack(side=ctk.LEFT, fill=ctk.X, expand=False, padx=5, pady=5)
-            if name == "Toggle images" and self.use_images: btn.configure(text="Toggle images", fg_color=Colors.BUTTON_ACTIVE, hover_color=Colors.BUTTON_ACTIVE_HOVER)
-            if name == "Restart as Admin" and self.is_admin: btn.configure(text="Running in admin mode", state=ctk.DISABLED, fg_color=Colors.WINDOW_ALWAYS_ON_TOP)
+        self.buttons_2_container.pack(side=ctk.TOP, fill=ctk.BOTH, expand=True, anchor=ctk.CENTER)
 
         # AOT container
         self.aot_container = ctk.CTkFrame(self.button_frame)
@@ -220,48 +203,83 @@ class CtkGuiManager(ctk.CTk):
         self.aot_frame = ctk.CTkFrame(self.aot_container)
         self.aot_frame.pack(side=ctk.TOP, fill=ctk.X)
 
-        self.aot_button = self.create_button(self.aot_frame, text="Toggle AOT", command=self.callbacks.get("toggle_AOT"))
-        self.aot_button.pack(side=ctk.LEFT, fill=ctk.X, expand=False, padx=5, pady=5)
-
-        # AOT status label
-        self.aot_label = ctk.CTkLabel(self.aot_frame, text=Messages.ALWAYS_ON_TOP_DISABLED, width=UIConstants.BUTTON_WIDTH, anchor='w')
-        self.aot_label.pack(side=ctk.LEFT, fill=ctk.X, expand=False, padx=5, pady=5)
-
         # Images frame
         self.images_frame = ctk.CTkFrame(self.aot_container)
         self.images_frame.pack(side=ctk.TOP, fill=ctk.X)
 
-        # Auto re-apply checkbutton
-        self.auto_apply_checkbutton = ctk.CTkCheckBox(self.images_frame, text="Auto re-apply", variable=self.reapply, command=self.callbacks.get("auto_reapply"))
-        self.auto_apply_checkbutton.pack(side=ctk.LEFT, padx=5, pady=5)
+        # Auto re-apply switch
+        self.auto_apply_switch = ctk.CTkSwitch(self.images_frame, text="Auto re-apply", variable=self.reapply, command=self.callbacks.get("auto_reapply"), progress_color=Colors.TEXT_ALWAYS_ON_TOP)
+        self.auto_apply_switch.pack(side=ctk.LEFT, padx=10, pady=5)
+
+        self.apply_config_button = self.create_button(self.buttons_1_container, text="Apply config", command=self.callbacks.get("apply_config"))
+        self.create_config_button = self.create_button(self.buttons_1_container, text="Create config", command=self.callbacks.get("create_config"))
+        self.delete_config_button = self.create_button(self.buttons_1_container, text="Delete config", command=self.callbacks.get("delete_config"))
+        self.config_folder_button = self.create_button(self.buttons_1_container, text="Open config folder", command=self.callbacks.get("open_config_folder"))
+        self.toggle_compact_button = self.create_button(self.buttons_2_container, text="Toggle compact", command=self.callbacks.get("toggle_compact"))
+        self.screenshot_button = self.create_button(self.buttons_2_container, text="Take screenshots", command=self.callbacks.get("screenshot"))
+        self.aot_button = self.create_button(self.aot_frame, text="Toggle AOT", command=self.callbacks.get("toggle_AOT"), state=ctk.DISABLED)
+        self.aot_label = ctk.CTkLabel(self.aot_frame, text=Messages.ALWAYS_ON_TOP_DISABLED, width=UIConstants.BUTTON_WIDTH, anchor='w')
+
+        self.setup_buttons()
+
+    def setup_buttons(self):
+        self.admin_button.pack(side=ctk.RIGHT, padx=5)
+        self.theme_switch.pack(side=ctk.RIGHT, padx=5)
+
+        # First line of buttons
+        self.apply_config_button.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=5, pady=5)
+        self.create_config_button.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=5, pady=5)
+        self.delete_config_button.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=5, pady=5)
+        self.config_folder_button.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=5, pady=5)
+
+        # Second line of buttons
+        self.toggle_compact_button.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=5, pady=5)
+        self.screenshot_button.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=5, pady=5)
+        
+        self.aot_button.pack(side=ctk.LEFT, fill=ctk.X, expand=False, padx=5, pady=5)
+
+        # AOT status label
+        self.aot_label.pack(side=ctk.LEFT, fill=ctk.X, expand=False, padx=5, pady=5)
 
     def manage_image_buttons(self, destroy=False):
         if destroy:
             self.snap_on_open_label.destroy()
+            self.no_snap_on_open.destroy()
             self.snap_left_on_open.destroy()
             self.snap_right_on_open.destroy()
             self.image_download_button.destroy()
             self.image_folder_button.destroy()
+            self.details_switch.destroy()
+            self.toggle_images_switch.destroy()
         else:
-            # Snap on open buttons and label
-            self.snap_right_on_open = ctk.CTkCheckBox(self.images_frame, text="Right", variable=self.snap, onvalue=2, offvalue=0, command=self.callbacks.get("snap"), width=5)
-            self.snap_right_on_open.pack(side=ctk.RIGHT, padx=5, pady=5)
+            # Window details switch
+            self.details_switch = ctk.CTkSwitch(self.images_frame, text="Show window details", variable=self.details, command=self.callbacks.get("details"), progress_color=Colors.TEXT_ALWAYS_ON_TOP)
+            self.details_switch.pack(side=ctk.LEFT, padx=10, pady=5)
 
-            self.snap_left_on_open = ctk.CTkCheckBox(self.images_frame, text="Left", variable=self.snap, onvalue=1, offvalue=0, command=self.callbacks.get("snap"), width=5)
+            # Snap on open buttons and label
+            self.snap_right_on_open = ctk.CTkRadioButton(self.images_frame, text="Snap right", variable=self.snap, value=2, command=self.callbacks.get("snap"), width=5, fg_color=Colors.TEXT_ALWAYS_ON_TOP)
+            self.snap_right_on_open.pack(side=ctk.RIGHT, padx=(5, 10), pady=5)
+
+            self.no_snap_on_open = ctk.CTkRadioButton(self.images_frame, text="Center", variable=self.snap, value=0, command=self.callbacks.get("snap"), width=5, fg_color=Colors.TEXT_ALWAYS_ON_TOP)
+            self.no_snap_on_open.pack(side=ctk.RIGHT, padx=5, pady=5)
+
+            self.snap_left_on_open = ctk.CTkRadioButton(self.images_frame, text="Snap left", variable=self.snap, value=1, command=self.callbacks.get("snap"), width=5, fg_color=Colors.TEXT_ALWAYS_ON_TOP)
             self.snap_left_on_open.pack(side=ctk.RIGHT, padx=5, pady=5)
 
-            self.snap_on_open_label = ctk.CTkLabel(self.images_frame, text="Snap application on open:")
+            self.snap_on_open_label = ctk.CTkLabel(self.images_frame, text="Application position on open:")
             self.snap_on_open_label.pack(side=ctk.RIGHT, fill=ctk.X, padx=5, pady=5)
 
+            self.toggle_images_switch = ctk.CTkSwitch(self.images_frame, text="Images", variable=self.use_images, command=self.callbacks.get("toggle_images"), progress_color=Colors.TEXT_ALWAYS_ON_TOP)
+            self.toggle_images_switch.pack(side=ctk.LEFT, fill=ctk.X, expand=False, padx=5)
 
             # Image download button
-            self.image_download_button = self.create_button(self.aot_frame, text="Download images", command=self.callbacks.get("download_images"))
+            self.image_download_button = self.create_button(self.buttons_2_container, text="Download images", command=self.callbacks.get("download_images"))
             if self.client_info_missing: self.image_download_button.configure(text="Client info missing", state=ctk.DISABLED)
-            self.image_download_button.pack(side=ctk.LEFT, fill=ctk.X, expand=False, padx=5, pady=5)
+            self.image_download_button.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=5, pady=5)
 
             # Image folder button
-            self.image_folder_button = self.create_button(self.aot_frame, text="Open image folder", command=self.callbacks.get("image_folder"))
-            self.image_folder_button.pack(side=ctk.LEFT, fill=ctk.X, expand=False, padx=5, pady=5)
+            self.image_folder_button = self.create_button(self.buttons_2_container, text="Open image folder", command=self.callbacks.get("image_folder"))
+            self.image_folder_button.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=5, pady=5)
 
     def setup_managed_text(self):
         if not hasattr(self, 'managed_frame') or not self.managed_frame.winfo_ismapped():
@@ -319,7 +337,7 @@ class CtkGuiManager(ctk.CTk):
         if self.layout_frame:
             self.layout_frame.destroy()
 
-        self.layout_frame = ScreenLayoutFrame(self.layout_container, self.res_x, self.res_y, windows, assets_dir=self.assets_dir, use_images=self.use_images, style_dark=self.style_dark)
+        self.layout_frame = ScreenLayoutFrame(self.layout_container, self.res_x, self.res_y, windows, assets_dir=self.assets_dir, use_images=self.use_images, style_dark=self.style_dark, window_details=self.details)
         self.layout_frame.pack(fill=ctk.BOTH, expand=True)
         self.layout_frame.canvas.bind("<MouseWheel>", self.on_mousewheel)
 
@@ -333,49 +351,41 @@ class CtkGuiManager(ctk.CTk):
             self.geometry(f"{UIConstants.WINDOW_WIDTH}x{UIConstants.WINDOW_HEIGHT}")
 
     def toggle_compact(self, startup=False):
-        if not startup: self.compact_mode = not self.compact_mode
+        if not startup:
+            if self.compact_mode == 0:
+                self.compact_mode = 1
+            else:
+                self.compact_mode = 0
+
+        compact_buttons = ['Apply config', 'Create config', 'Delete config', 'Toggle compact', 'Toggle AOT']
+
+        self.buttons = [b for b in self.buttons if b.winfo_exists()]
+        
         if self.compact_mode:
             if self.layout_container:
                 self.layout_container.pack_forget()
-            
-            buttons = ['Apply config', 'Create config', 'Delete config', 'Toggle compact']
 
-            for child in self.buttons_1_container.winfo_children():
-                if child.cget("text") in buttons:
-                    child.pack(side=ctk.TOP, fill=ctk.X, expand=False, padx=5, pady=5)
+            for button in self.buttons:
+                if button.cget("text") in compact_buttons:
+                    button.pack(side=ctk.TOP, fill=ctk.X, expand=False, padx=5, pady=5)
                 else:
-                    child.pack_forget()
-            
-            for child in self.buttons_2_container.winfo_children():
-                if child.cget("text") in buttons:
-                    child.pack(side=ctk.TOP, fill=ctk.X, expand=False, padx=5, pady=5)
-                else:
-                    child.pack_forget()
+                    button.pack_forget()
 
-            self.aot_button.pack(side=ctk.TOP, padx=5, pady=5)
             self.aot_label.pack(side=ctk.TOP, padx=5, pady=5)
             self.manage_image_buttons(destroy=True)
-
             self.setup_managed_text()
         else:
             if self.layout_container:
                 self.layout_container.pack(before=self.button_frame, side=ctk.TOP, fill=ctk.BOTH, expand=True)
 
-            for child in self.buttons_1_container.winfo_children():
-                if isinstance(child, ctk.CTkButton):
-                    child.pack_forget()
-                    child.pack(side=ctk.LEFT, fill=ctk.X, expand=False, padx=5, pady=5)
-            
-            for child in self.buttons_2_container.winfo_children():
-                if isinstance(child, ctk.CTkButton):
-                    child.pack_forget()
-                    child.pack(side=ctk.LEFT, fill=ctk.X, expand=False, padx=5, pady=5)
+            for button in self.buttons:
+                if button.cget("text") in compact_buttons:
+                    button.pack_forget()
 
-            self.aot_button.pack(side=ctk.LEFT, padx=5, pady=5)
-            self.aot_label.pack(side=ctk.LEFT, padx=5, pady=5)
-            
+            self.aot_label.pack_forget()
+
+            self.setup_buttons()
             self.remove_managed_windows_frame()
-
             self.manage_image_buttons(destroy=False)
         
         self.scale_gui()
@@ -391,10 +401,10 @@ class CtkGuiManager(ctk.CTk):
         def confirm_selection():
             selected = [title for title, var in switches.items() if var.get()]
             if not selected:
-                ctk.messagebox.showerror("Error", "No windows selected")
+                tk.messagebox.showerror("Error", "No windows selected")
                 return
             if len(selected) > UIConstants.MAX_WINDOWS:
-                ctk.messagebox.showerror("Error", f"Select up to {UIConstants.MAX_WINDOWS} windows only")
+                tk.messagebox.showerror("Error", f"Select up to {UIConstants.MAX_WINDOWS} windows only")
                 return
             show_config_settings(selected)
 
@@ -433,11 +443,11 @@ class CtkGuiManager(ctk.CTk):
 
                 settings_vars[title] = [pos_var, size_var, aot_var, titlebar_var, name_var]
 
-                ctk.CTkEntry(settings_frame, textvariable=name_var, width=320, font=entry_font).grid(row=row+1, column=0, sticky='w', padx=5, pady=1, columnspan=4)
+                ctk.CTkEntry(settings_frame, textvariable=name_var, width=320, font=entry_font).grid(row=row+1, column=0, sticky='w', padx=5, pady=1, columnspan=2)
                 ctk.CTkEntry(settings_frame, textvariable=pos_var, width=80, font=entry_font).grid(row=row+1, column=2)
                 ctk.CTkEntry(settings_frame, textvariable=size_var, width=80, font=entry_font).grid(row=row+1, column=3)
-                ctk.CTkCheckBox(settings_frame, text="", variable=aot_var, width=80, font=entry_font).grid(row=row+1, column=4, sticky='w')
-                ctk.CTkCheckBox(settings_frame, text="", variable=titlebar_var, width=80, font=entry_font).grid(row=row+1, column=5, sticky='w')
+                ctk.CTkCheckBox(settings_frame, text="", variable=aot_var, width=80, font=entry_font, fg_color=Colors.TEXT_ALWAYS_ON_TOP).grid(row=row+1, column=4, sticky='w')
+                ctk.CTkCheckBox(settings_frame, text="", variable=titlebar_var, width=80, font=entry_font, fg_color=Colors.TEXT_ALWAYS_ON_TOP).grid(row=row+1, column=5, sticky='w')
 
             row += 1
             ctk.CTkLabel(settings_frame, text="Config Name: ", font=entry_font).grid(row=row+1, column=2)
@@ -480,7 +490,9 @@ class CtkGuiManager(ctk.CTk):
                                                                 self.winfo_screenheight(),
                                                                 windows,
                                                                 self.assets_dir,
-                                                                style_dark=self.style_dark
+                                                                style_dark=self.style_dark,
+                                                                window_details=self.details,
+                                                                use_images=self.use_images
                                                                 )
                     self.layout_frame_create_config.pack(expand=True, fill='both')
                 except Exception as e:
@@ -721,7 +733,8 @@ class CtkGuiManager(ctk.CTk):
                 selection_frame,
                 text=clean_title,
                 variable=var,
-                font=entry_font
+                font=entry_font,
+                fg_color=Colors.TEXT_ALWAYS_ON_TOP
             )
 
             cb.pack(anchor='w', padx=10, pady=5)
@@ -731,10 +744,12 @@ class CtkGuiManager(ctk.CTk):
 
 
 class ScreenLayoutFrame(ctk.CTkFrame):
-    def __init__(self, parent, screen_width, screen_height, windows: List[WindowInfo], assets_dir, style_dark=True, use_images=False):
+    def __init__(self, parent, screen_width, screen_height, windows: List[WindowInfo], assets_dir, use_images=False, style_dark=True, window_details=True):
         super().__init__(parent)
         self.windows = windows
         self.style_dark = style_dark
+
+        self.window_details = window_details.get()
 
         self.colors = Colors()
         if not self.style_dark:
@@ -745,7 +760,7 @@ class ScreenLayoutFrame(ctk.CTkFrame):
                         setattr(self.colors, attr, invert_hex_color(value))
         
         self.assets_dir = assets_dir
-        self.use_images = use_images
+        self.use_images = use_images.get()
 
         self.canvas = tk.Canvas(self, bg=self.colors.BACKGROUND)
         self.canvas.configure(highlightthickness=0, bd=0)
@@ -839,8 +854,8 @@ class ScreenLayoutFrame(ctk.CTkFrame):
             h = win.height * scale
 
             border_color = self.colors.WINDOW_BORDER
-            fill_color = self.colors.WINDOW_ALWAYS_ON_TOP if win.always_on_top else self.colors.WINDOW_NORMAL
-                
+            fill_color = Colors.WINDOW_ALWAYS_ON_TOP if win.always_on_top else self.colors.WINDOW_NORMAL
+
             # Draw window rectangle
             self.canvas.create_rectangle(
                 x, y, x + w, y + h,
@@ -872,12 +887,12 @@ class ScreenLayoutFrame(ctk.CTkFrame):
             # Draw text
             info_lines = [
                 win.search_title or win.name,
-                f"Pos:  {win.pos_x}, {win.pos_y}",
-                f"Size: {win.width} x {win.height}",
-                f"AOT:  {'Yes' if win.always_on_top else 'No'}"
+                f"Pos:  {win.pos_x}, {win.pos_y}" if self.window_details else "",
+                f"Size: {win.width} x {win.height}" if self.window_details else "",
+                f"AOT:  {'Yes' if win.always_on_top else 'No'}" if self.window_details else ""
             ]
 
-            text_color = self.colors.TEXT_NORMAL
+            text_color = self.colors.TEXT_NORMAL if not win.always_on_top else Colors.TEXT_NORMAL
             padding_x = 5
             padding_y = 5
             line_height = 16
@@ -886,33 +901,34 @@ class ScreenLayoutFrame(ctk.CTkFrame):
             lines_to_draw = info_lines[:max_lines]
 
             for i, line in enumerate(lines_to_draw):
-                font_to_use = Fonts.TEXT_BOLD if i == 0 else Fonts.TEXT_NORMAL
-                text_x = x + padding_x
-                text_y = y + padding_y + i * line_height
-                
-                # Text background
-                text_width = len(line) * 7.2
-                text_height = line_height - 2
-                
-                self.canvas.create_rectangle(
-                    text_x - 2, 
-                    text_y - 2, 
-                    text_x + text_width, 
-                    text_y + text_height, 
-                    fill=self.colors.WINDOW_NORMAL if not win.always_on_top else self.colors.WINDOW_ALWAYS_ON_TOP,
-                    outline=""
-                )
-                
-                # Draw the text on top of the background
-                self.canvas.create_text(
-                    text_x,
-                    text_y,
-                    text=line,
-                    fill=text_color,
-                    font=font_to_use,
-                    anchor="nw",
-                    justify=ctk.LEFT
-                )
+                if line != "":
+                    font_to_use = Fonts.TEXT_BOLD if i == 0 else Fonts.TEXT_NORMAL
+                    text_x = x + padding_x
+                    text_y = y + padding_y + i * line_height
+                    
+                    # Text background
+                    text_width = len(line) * 7.2
+                    text_height = line_height - 2
+                    
+                    self.canvas.create_rectangle(
+                        text_x - 2, 
+                        text_y - 2, 
+                        text_x + text_width, 
+                        text_y + text_height, 
+                        fill=self.colors.WINDOW_NORMAL if not win.always_on_top else Colors.WINDOW_ALWAYS_ON_TOP,
+                        outline=""
+                    )
+                    
+                    # Draw the text on top of the background
+                    self.canvas.create_text(
+                        text_x,
+                        text_y,
+                        text=line,
+                        fill=text_color,
+                        font=font_to_use,
+                        anchor="nw",
+                        justify=ctk.LEFT
+                    )
 
             # Missing text
             if not win.exists:
@@ -923,7 +939,7 @@ class ScreenLayoutFrame(ctk.CTkFrame):
                     (y + h - margin_bottom) - 12, 
                     (x + w / 2) + 28,
                     (y + h - margin_bottom) - 26,
-                    fill=self.colors.WINDOW_NORMAL if not win.always_on_top else self.colors.WINDOW_ALWAYS_ON_TOP, 
+                    fill=self.colors.WINDOW_NORMAL if not win.always_on_top else Colors.WINDOW_ALWAYS_ON_TOP, 
                     outline=""
                 )
                 
@@ -931,7 +947,7 @@ class ScreenLayoutFrame(ctk.CTkFrame):
                     x + w / 2,
                     y + h - margin_bottom - 20,
                     text="MISSING",
-                    fill=self.colors.TEXT_ERROR,
+                    fill=self.colors.TEXT_ERROR if not win.always_on_top else Colors.TEXT_ERROR,
                     font=Fonts.TEXT_BOLD,
                     justify=ctk.CENTER
                 )

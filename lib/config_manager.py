@@ -87,25 +87,31 @@ class ConfigManager:
 
     # Load application settings
     def load_settings(self):
-        defaults = False, False, 0
+        defaults = 0, 0, 0, 0
         try:
             if os.path.exists(self.settings_file):
                 with open(self.settings_file, 'r') as f:
                     settings = json.load(f)
-                    compact = settings.get('compact', False)
-                    use_images = settings.get('use_images', False)
+                    compact = settings.get('compact', 0)
+                    use_images = settings.get('use_images', 0)
                     snap  = settings.get('snap', 0)
-                    return compact, use_images, snap
+                    details = settings.get('details', 0)
+                    return compact, use_images, snap, details
             return defaults
         except Exception as e:
             print(f"Error loading settings: {e}")
             return defaults
 
     # Save application settings
-    def save_settings(self, compact_mode, use_images, snap):
+    def save_settings(self, compact_mode, use_images, snap, details):
         try:
             with open(self.settings_file, 'w') as f:
-                json.dump({'compact': compact_mode, 'use_images': use_images, 'snap': snap}, f)
+                json.dump({
+                    'compact': compact_mode,
+                    'use_images': use_images,
+                    'snap': snap,
+                    'details': details
+                    }, f)
             return True
         except Exception as e:
             print(f"Error saving settings: {e}")
