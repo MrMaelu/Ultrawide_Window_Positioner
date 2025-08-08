@@ -1,101 +1,54 @@
 import os
 import sys
-import importlib
 import threading
-import customtkinter as ctk
-from ctypes import windll
-import tkinter.messagebox as messagebox
+from ctypes import windll, WinError, get_last_error
 
 # Local imports
-from lib.layout_ctk import CtkGuiManager
-from lib.constants import UIConstants, Colors
-from lib.asset_manager import AssetManager
-from lib.window_manager import WindowManager
-from lib.config_manager import ConfigManager
-from lib.utils import WindowInfo, clean_window_title, invert_hex_color
+from constants import UIConstants
+from utils import WindowInfo, clean_window_title
+from window_manager import WindowManager
 
-class ApplicationState:
-    def __init__(self):
-        # Initialize managers
-        self.window_manager = None
-        self.config_manager = None
-        self.asset_manager = None
+def messagebox(title, message, style):
+    result = windll.user32.MessageBoxW(None, message, title, style)
+    if not result:
+        raise WinError(get_last_error())
+    return result
 
-        # Assets
-        self.assets_dir = None
-        
-        # Client ID / secret
-        self.CLIENT_ID = None
-        self.CLIENT_SECRET = None
-        self.client_info_missing = True
-        
-        # UI state
-        self.is_admin = False
-        self.compact = 0
-        self.snap_side = 0
-        self.use_images = 0
-        self.details = 0
-        
-        # Screen info
-        self.screen_width = 1920
-        self.screen_height = 1080
-        
-        # Config state
-        self.config_files = []
-        self.config_names = []
-        self.config = None
-        self.config_dir = None
+class CallbackManager:
+    def __init__(self, app, config_manager, asset_manager):
+        self.app = app
+        self.config_manager = config_manager
+        self.window_manager = WindowManager()
+        self.asset_manager = asset_manager
+
+        self.base_path = config_manager.base_path
+        self.assets_dir = self.asset_manager.assets_dir
+        self.config_dir = self.config_manager.config_dir
+
         self.applied_config = None
+        self.compact = False
+        
+        self.callbacks = {
+            "apply_config": self.apply_settings_threaded,
+            "create_config": self.create_config,
+            "open_config_folder": self.open_config_folder,
+            "restart_as_admin": self.restart_as_admin,
+            "toggle_AOT": self.toggle_always_on_top,
+            "config_selected": self.on_config_select,
+            "toggle_compact": self.toggle_compact_mode,
+            "delete_config": self.delete_config,
+            "image_folder": self.open_image_folder,
+            "download_images": self.download_screenshots_threaded,
+            "toggle_images": self.toggle_images,
+            "screenshot": self.take_screenshot,
+            "snap": self.save_settings,
+            "auto_reapply": self.start_auto_reapply,
+            "details": self.window_details
+        }
 
-######################
-# Callback functions #
-######################
-
-    def apply_settings(self, reapply=False):
-        if not reapply:
-            for child in self.app.buttons_1_container.winfo_children():
-                if child.cget("text") == "Apply config":
-                    selected_config = self.config_files[self.config_names.index(self.app.combo_box.get())]
-                    selected_config_shortname = selected_config.replace('config_', '').replace('.ini', '')
-                    config = self.config_manager.load_config(selected_config)
-
-                    self.applied_config = config
-
-                    child.configure(text="Reset config", fg_color=Colors.BUTTON_ACTIVE, hover_color=Colors.BUTTON_ACTIVE_HOVER)
-                    self.app.info_label.configure(text=f"Active config: {selected_config_shortname}")
-                    self.app.aot_button.configure(state=ctk.NORMAL)
-
-                elif child.cget("text") == "Reset config" and not reapply:
-                    self.applied_config = None
-                    self.window_manager.reset_all_windows()
-                    child.configure(text="Apply config", fg_color=Colors.BUTTON_NORMAL, hover_color=Colors.BUTTON_HOVER)
-                    self.app.info_label.configure(text=f"")
-                    self.app.aot_button.configure(state=ctk.DISABLED)
-                    self.app.reapply.set(0)
-
-        if self.applied_config:
-            matching_windows, _ = self.window_manager.find_matching_windows(self.applied_config)
-            self.window_manager.reset_all_windows()
-            
-            # Apply configuration
-            for match in matching_windows:
-                try:
-                    hwnd = match['hwnd']
-                    section = match['config_name']
-                    settings = {
-                        'position': self.applied_config.get(section, 'position', fallback=None),
-                        'size': self.applied_config.get(section, 'size', fallback=None),
-                        'always_on_top': self.applied_config.getboolean(section, 'always_on_top', fallback=False),
-                        'has_titlebar': self.applied_config.getboolean(section, 'titlebar', fallback=True)
-                    }
-                    
-                    self.window_manager.apply_window_config(settings, hwnd, section)
-                    
-                except Exception as e:
-                    print(f"Error applying settings to window {match['config_name']}: {e}")
-                    continue
-                
-        self.update_always_on_top_status()
+    # Callback functions
+    def apply_settings_threaded(self):
+        threading.Thread(target=self.apply_settings, daemon=True).start()
 
     def create_config(self):
         self.app.create_config_ui(self.app,
@@ -159,16 +112,16 @@ class ApplicationState:
     def delete_config(self):
         current_name = self.app.combo_box.get().strip()
         if not current_name:
-            messagebox.showerror("Error", "No config selected to delete.")
+            messagebox(title="Error", message="No config selected to delete.", style=0)
             return
 
-        confirm = messagebox.askyesno("Confirm Delete", f"Delete config '{current_name}'?")
-        if confirm:
+        confirm = messagebox(title="Confirm Delete", message=f"Delete config '{current_name}'?", style=4)
+        if confirm == 6:
             deleted = self.config_manager.delete_config(current_name)
             if deleted:
                 self.update_config_list()
             else:
-                messagebox.showerror("Error", f"Failed to delete '{current_name}'.")
+                messagebox( title="Error", message=f"Failed to delete '{current_name}'.", style=0)
 
     def open_image_folder(self):
         # Open the image folder in File Explorer
@@ -182,21 +135,6 @@ class ApplicationState:
         threading.Thread(target=self.download_screenshots, daemon=True).start()
                         
     def toggle_images(self):
-        #self.app.use_images = not self.app.use_images
-        """
-        if self.app.use_images:
-            self.app.toggle_images_button.configure(
-                fg_color=Colors.BUTTON_ACTIVE,
-                hover_color=Colors.BUTTON_ACTIVE_HOVER,
-                text_color=Colors.TEXT_NORMAL,
-                )
-        elif not self.app.use_images:
-            self.app.toggle_images_button.configure(
-                fg_color=Colors.BUTTON_NORMAL if self.app.style_dark else invert_hex_color(Colors.BUTTON_NORMAL),
-                hover_color=Colors.BUTTON_HOVER if self.app.style_dark else invert_hex_color(Colors.BUTTON_HOVER),
-                text_color=Colors.TEXT_NORMAL if self.app.style_dark else invert_hex_color(Colors.TEXT_NORMAL),
-                )
-        """
         self.save_settings()
         _, missing_windows = self.window_manager.find_matching_windows(self.config)
         self.compute_window_layout(self.config, missing_windows)
@@ -211,7 +149,49 @@ class ApplicationState:
         self.on_config_select(self.app.combo_box)
 
 
-######################
+    # Helper functions
+    def apply_settings(self, reapply=False):
+        selected_config_shortname = None
+        if not reapply:
+            self.app.config_active = not self.app.config_active
+            if self.app.config_active:
+                selected_config = self.config_files[self.config_names.index(self.app.combo_box.get())]
+                selected_config_shortname = selected_config.replace('config_', '').replace('.ini', '')
+                config = self.config_manager.load_config(selected_config)
+                self.applied_config = config
+                self.app.format_apply_reset_button(selected_config_shortname)
+                self.app.format_apply_reset_button(disable=1)
+
+            elif not self.app.config_active:
+                self.applied_config = None
+                self.window_manager.reset_all_windows()
+                self.app.format_apply_reset_button()
+
+        if self.applied_config:
+            matching_windows, _ = self.window_manager.find_matching_windows(self.applied_config)
+            self.window_manager.reset_all_windows()
+            
+            # Apply configuration
+            for match in matching_windows:
+                try:
+                    hwnd = match['hwnd']
+                    section = match['config_name']
+                    settings = {
+                        'position': self.applied_config.get(section, 'position', fallback=None),
+                        'size': self.applied_config.get(section, 'size', fallback=None),
+                        'always_on_top': self.applied_config.getboolean(section, 'always_on_top', fallback=False),
+                        'has_titlebar': self.applied_config.getboolean(section, 'titlebar', fallback=True)
+                    }
+                    
+                    self.window_manager.apply_window_config(settings, hwnd, section)
+                    
+                except Exception as e:
+                    print(f"Error applying settings to window {match['config_name']}: {e}")
+                    continue
+                
+        self.update_always_on_top_status()
+        self.app.applied_config = selected_config_shortname
+        self.app.format_apply_reset_button(disable=0)
 
     # Check if the current window layout matches the applied config
     def compare_window_data(self, settings, metrics):
@@ -262,23 +242,13 @@ class ApplicationState:
             if not all(compare_results):
                 self.apply_settings(reapply=True)
 
-    # Check if IGDB secrets are added
-    def check_igdb_client_info(self):
-        for module_name in ("lib.client_secrets", "client_secrets"):
-            try:
-                secrets = importlib.import_module(module_name)
-                self.CLIENT_ID = secrets.CLIENT_ID
-                self.CLIENT_SECRET = secrets.CLIENT_SECRET
-                if self.CLIENT_ID.strip() != '' and self.CLIENT_SECRET.strip() != '':
-                    self.client_info_missing = False
-                break
-            except ModuleNotFoundError:
-                continue
-
     # Download screenshots from IGDB
     def download_screenshots(self):
+            number_of_images = 0
+            failed_downloads = 0
+            ignored = 0
             self.app.image_download_button.configure(state='disabled')
-            search_titles = set()
+            search_titles = {}
 
             # Getting the titles from all config files
             config_files, _ = self.config_manager.list_config_files()
@@ -290,29 +260,62 @@ class ApplicationState:
                 for section in config.sections():
                     title = config[section].get("search_title", fallback=section)
                     cleaned_title = clean_window_title(title, sanitize=True)
-                    search_titles.add(cleaned_title)
+                    if cleaned_title not in search_titles:
+                        search_titles[cleaned_title] = []
+                    search_titles[cleaned_title].append((config_file, section))
             
             # Downloading screenshots for all titles
-            for title in search_titles:
+            for title, pairs in search_titles.items():
                 filename = title.replace(' ', '_').replace(':', '')
                 image_path = os.path.join(self.assets_dir, f"{filename}.jpg")
 
+                source_url = ''
+                source = ''
                 if not os.path.exists(image_path):
-                    self.asset_manager.search(title, save_dir=self.assets_dir)
                     if self.app.info_label.winfo_exists():
                         self.app.info_label.configure(text=f"Downloading image for {title}")
+                    
+                    # Trying to download the screenshot
+                    result, source, source_url = self.asset_manager.search(title, save_dir=self.assets_dir)
+                    if result == 'ignored':
+                        ignored += 1
+                        source_url = ''
+                        source = ''
+                    elif result:
+                        number_of_images += 1
+                    else:
+                        failed_downloads += 1
+                        source_url = ''
+                        source = ''
+
+                else:
+                    for config_file, section in pairs:
+                        config = self.config_manager.load_config(config_file)
+                        if config and section in config.sections():
+                            source = config[section].get('source', '')
+                            source_url = config[section].get('source_url', source_url)
+                            if source_url:
+                                break
+
+                # Update the config files with the source_url
+                for config_file, section in pairs:
+                    config = self.config_manager.load_config(config_file)
+                    if config and section in config.sections():
+                        config.set(section, 'source', source)
+                        config.set(section, 'source_url', source_url)
+                        self.config_manager.save_config(config, config_file)
 
             _, missing_windows = self.window_manager.find_matching_windows(self.config)
             if not self.compact:
                 self.compute_window_layout(self.config, missing_windows)
                 if self.app.info_label.winfo_exists():
-                    self.app.info_label.configure(text=f"Image download complete")
+                    self.app.info_label.configure(text=f"Image download complete. {number_of_images} images downloaded. {ignored} ignored. {failed_downloads} failed.")
 
             self.app.image_download_button.configure(state='enabled')
 
     # Take a screenshot of any detected window for the currently loaded config
     def take_screenshot(self):
-        existing_windows, _ = self.window_manager.find_matching_windows(self.config)
+        existing_windows, missing_windows = self.window_manager.find_matching_windows(self.config)
         if existing_windows:
             for window in existing_windows:
                 hwnd = window['hwnd']
@@ -321,6 +324,8 @@ class ApplicationState:
                 self.asset_manager.capture_window(hwnd=hwnd, save_path=image_path)
         
             self.asset_manager.bring_to_front(hwnd=self.app.winfo_id())
+            self.compute_window_layout(self.config, missing_windows)
+            self.app.info_label.configure(text="Screenshot taken for all detected windows.")
 
     def update_always_on_top_status(self):
         try:
@@ -357,15 +362,14 @@ class ApplicationState:
                 if pos and size:
                     pos_x, pos_y = map(int, pos.split(','))
                     size_w, size_h = map(int, size.split(','))
-                    always_on_top = config[section].get("always_on_top", "false").lower() == "true"
-                    window_exists = section not in missing_windows
-                    search_title = config[section].get("search_title") or section
                     positioned_windows.append(WindowInfo(section,
                                                          pos_x, pos_y,
                                                          size_w, size_h,
-                                                         always_on_top,
-                                                         window_exists,
-                                                         search_title
+                                                         always_on_top=config[section].get("always_on_top", "false").lower() == "true",
+                                                         exists=section not in missing_windows,
+                                                         search_title=config[section].get("search_title") or section,
+                                                         source_url=config[section].get("source_url", ''),
+                                                         source=config[section].get("source", '')
                                                          ))
 
             self.app.set_layout_frame(positioned_windows)
@@ -385,71 +389,3 @@ class ApplicationState:
     def save_settings(self):
         self.config_manager.save_settings(self.app.compact_mode, self.app.use_images.get(), self.app.snap.get(), self.app.details.get())
 
-    def load_managers(self):
-        # Checking if the IGDB client info is added
-        state.check_igdb_client_info()
-        state.window_manager = WindowManager()
-        state.asset_manager = AssetManager(client_id=self.CLIENT_ID, client_secret=self.CLIENT_SECRET, client_info_missing=self.client_info_missing)
-
-
-def load_GUI():
-    callbacks = {
-        "apply_config": state.apply_settings,
-        "create_config": state.create_config,
-        "open_config_folder": state.open_config_folder,
-        "restart_as_admin": state.restart_as_admin,
-        "toggle_AOT": state.toggle_always_on_top,
-        "config_selected": state.on_config_select,
-        "toggle_compact": state.toggle_compact_mode,
-        "delete_config": state.delete_config,
-        "image_folder": state.open_image_folder,
-        "download_images": state.download_screenshots_threaded,
-        "toggle_images": state.toggle_images,
-        "screenshot": state.take_screenshot,
-        "snap": state.save_settings,
-        "auto_reapply": state.start_auto_reapply,
-        "details": state.window_details
-    }
-
-    app = CtkGuiManager(callbacks=callbacks, compact=state.compact, is_admin=state.is_admin, use_images=state.use_images, snap=state.snap_side, details=state.details, client_info_missing=state.client_info_missing, config_manger=state.config_manager)
-    state.app = app
-    state.app.assets_dir = state.assets_dir
-
-    # Set default config
-    if state.compact: state.toggle_compact_mode(startup=True)
-    default_config = state.config_manager.detect_default_config()
-    state.update_config_list(default_config)
-
-    # Start main GUI
-    state.app.mainloop()
-
-if __name__ == "__main__":
-    # Get application base path
-    # Needed to make the application work the same when running as script as well as .exe
-    if getattr(sys, 'frozen', False):
-        base_path = os.path.dirname(sys.executable)
-    else:
-        base_path = os.path.dirname(os.path.abspath(__file__))
-
-    # Set up managers
-    state = ApplicationState()
-    state.config_manager = ConfigManager(base_path)
-    threading.Thread(target=state.load_managers, daemon=True).start()
-    
-    # Set config and asset folders
-    state.config_dir = os.path.join(base_path, "configs")
-    if not os.path.exists(state.config_dir): os.makedirs(state.config_dir)
-
-    state.assets_dir = os.path.join(base_path, "assets")
-    if not os.path.exists(state.assets_dir): os.makedirs(state.assets_dir)
-
-    # Check for admin rights
-    try:
-        state.is_admin = windll.shell32.IsUserAnAdmin()
-    except:
-        state.is_admin = False
-    
-    # Load config
-    state.compact, state.use_images, state.snap_side , state.details = state.config_manager.load_settings()
-
-    load_GUI()

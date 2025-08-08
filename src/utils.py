@@ -11,6 +11,8 @@ class WindowInfo:
     always_on_top: bool
     exists: bool
     search_title: str
+    source_url: str
+    source: str
 
 def clean_window_title(title, sanitize=False, titlecase=True):
     if not title:

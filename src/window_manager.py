@@ -4,7 +4,7 @@ import win32con
 import pygetwindow as gw
 
 # Local imports
-from lib.utils import clean_window_title
+from utils import clean_window_title
 
 class WindowManager:
     def __init__(self):
@@ -45,7 +45,7 @@ class WindowManager:
                     # Apply settings
                     apply_funcs = {
                         'aot': (self.set_always_on_top, always_on_top),
-                        'titlebar': (self.keep_titlebar, has_titlebar),
+                        'titlebar': (self.enable_titlebar, has_titlebar),
                         'pos': (self.set_window_position, position[0], position[1]),
                         'size': (self.set_window_size, size[0], size[1])
                     }
@@ -119,8 +119,8 @@ class WindowManager:
                 print(f"Error setting window size for {hwnd}: {e}")
                 return False
 
-    def keep_titlebar(self, hwnd, restore=False):
-        if restore:
+    def enable_titlebar(self, hwnd, enable=True):
+        if enable:
             return self.restore_window_frame(hwnd)
         if self.is_valid_window(hwnd):
             try:

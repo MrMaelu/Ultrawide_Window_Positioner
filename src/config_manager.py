@@ -8,49 +8,51 @@ import configparser
 import pygetwindow as gw
 
 # Local imports
-from lib.utils import clean_window_title
-from lib.constants import LayoutDefaults
+from utils import clean_window_title
+from constants import LayoutDefaults
 
 class ConfigManager:
-    LAYOUT_CONFIG_FILE = "layout_config.ini"
-    SECTION = "Layouts"
-    
-    def __init__(self, base_path):
+    #layout_config_file = "layout_config.ini"
+    section = "Layouts"
+
+    def __init__(self, base_path=None):
         self.base_path = base_path
         self.config_dir = os.path.join(base_path, "configs")
-        self.settings_file = os.path.join(base_path, "settings.json")
+        self.settings_dir = os.path.join(base_path, "settings")
 
-        # Create config directory if it doesn't exist
+        self.settings_file = os.path.join(self.settings_dir, "settings.json")
+        self.layout_config_file = os.path.join(self.settings_dir, "layout_config.ini")
+
+        # Create directories if they don't exist
         if not os.path.exists(self.config_dir):
             os.makedirs(self.config_dir)
-            print(f"Created config directory: {self.config_dir}")
+        if not os.path.exists(self.settings_dir):
+            os.makedirs(self.settings_dir)
 
     @staticmethod
     def serialize(layouts: dict) -> configparser.ConfigParser:
         config = configparser.ConfigParser()
-        config[ConfigManager.SECTION] = {}
+        config[ConfigManager.section] = {}
 
         for key, entries in layouts.items():
-            config[ConfigManager.SECTION][str(key)] = repr(entries)
+            config[ConfigManager.section][str(key)] = repr(entries)
         return config
 
     @staticmethod
     def deserialize(config: configparser.ConfigParser) -> dict:
         layouts = {}
-        if ConfigManager.SECTION not in config:
+        if ConfigManager.section not in config:
             return LayoutDefaults.DEFAULT_LAYOUTS
 
-        for key in config[ConfigManager.SECTION]:
+        for key in config[ConfigManager.section]:
             try:
-                layouts[int(key)] = ast.literal_eval(config[ConfigManager.SECTION][key])
+                layouts[int(key)] = ast.literal_eval(config[ConfigManager.section][key])
             except Exception:
                 continue
         return layouts
 
     @staticmethod
-    def load_or_create_layouts(path=None, reset=False) -> dict:
-        path = path or ConfigManager.LAYOUT_CONFIG_FILE
-
+    def load_or_create_layouts(path, reset=False) -> dict:
         # Create new config file with defaults
         if reset or not os.path.exists(path):
             config = ConfigManager.serialize(LayoutDefaults.DEFAULT_LAYOUTS)
@@ -71,6 +73,12 @@ class ConfigManager:
         config_files.sort()
         config_names = [f[7:-4] for f in config_files]
         return config_files, config_names
+
+
+    def save_config(self, config, config_file):
+        config_path = os.path.join(self.config_dir, config_file)
+        with open(config_path, 'w') as f:
+            config.write(f)
 
     # Load a configuration file
     def load_config(self, config_path):
@@ -272,3 +280,24 @@ class ConfigManager:
             
         return repaired_config
 
+    def update_rawg_url(self, title, rawg_url):
+        print(f"Updating rawg_url for {title} to {rawg_url}")
+        try:
+            config = configparser.ConfigParser()
+            config_files, config_names = self.list_config_files()
+            for config_file in config_files:
+                full_path = os.path.join(self.config_dir, config_file)
+                if not os.path.exists(full_path):
+                    continue
+                config.read(full_path)
+                if not config.has_section(title):
+                    config.add_section(title)
+                
+                config.set(title, 'rawg_url', rawg_url)
+
+                with open(config_file, 'w') as f:
+                    config.write(f)
+                return True
+        except Exception as e:
+            print(f"Failed to update rawg_url for {title}: {e}")
+            return False

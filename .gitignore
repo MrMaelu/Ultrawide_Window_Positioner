@@ -40,8 +40,9 @@ tmp_*
 config_*.ini
 test.py
 configs
-settings.json
+settings
 assets
 _assets
 *client_secrets.py
 layout_config.ini
+buglist.txt

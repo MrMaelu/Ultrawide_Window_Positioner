@@ -78,11 +78,19 @@ class LayoutDefaults:
 
 class UIConstants:
     # Window dimensions
-    WINDOW_WIDTH = 1050
-    WINDOW_HEIGHT = 580
+    WINDOW_WIDTH = 960
+    WINDOW_HEIGHT = 550
+    WINDOW_MIN_WIDTH = 960
+    WINDOW_MIN_HEIGHT = 550
+
+    SETTINGS_WIDTH = 900
+    SETTINGS_HEIGHT = 500
+
     COMPACT_WIDTH = 180
     COMPACT_HEIGHT = 250
+
     BUTTON_WIDTH = 120
+    BUTTON_HEIGHT = 40
     COMPACT_BUTTON_WIDTH = 80
     CANVAS_HEIGHT = 240
     TASKBAR_HEIGHT = 48
@@ -113,14 +121,19 @@ class Colors:
     WINDOW_ALWAYS_ON_TOP = "#306030"
     WINDOW_BORDER = "#050505"
     DIM_BORDER = "#555555"
-    
+
+    # Window styles
+    TITLE_BAR_COLOR = '#000000'
+    TITLE_TEXT_COLOR = '#FFFFFF'
+    BORDER_COLOR = '#101010'
+
     # Text colors
     TEXT_NORMAL = "#FFFFFF"
     TEXT_ERROR = "#FFFF00"
     TEXT_ALWAYS_ON_TOP = "#50A050"
     TEXT_DIM = "#555555"
 
-    # Add these for darker backgrounds
+    # Use these for darker backgrounds
     WINDOW_NORMAL_DARK = "#2A2A2A"
     WINDOW_ALWAYS_ON_TOP_DARK = "#104010"
     WINDOW_MISSING_DARK = "#3F1F1F"
@@ -151,14 +164,10 @@ class Messages:
     ERROR_GUI_CREATION = "Error creating GUI: {}"
     ERROR_NO_CONFIG = "No config found"
 
-class WindowStyles:
-    TITLE_BAR_COLOR = '#000000'
-    TITLE_TEXT_COLOR = '#FFFFFF'
-    BORDER_COLOR = '#101010'
-
 class Fonts:
-    TEXT_NORMAL = ("Consolas", 10, "normal")
-    TEXT_BOLD = ("Consolas", 10, "bold")
-    TEXT_TITLE = ("Consolas", 11, "bold")
+    #TEXT_TITLE = ("Segoe UI", 11, "bold")
     #TEXT_NORMAL = ("Segoe UI", 10, "normal")
     #TEXT_BOLD = ("Segoe UI", 10, "bold")
+    TEXT_TITLE = ("Consolas", 11, "bold")
+    TEXT_NORMAL = ("Consolas", 10, "normal")
+    TEXT_BOLD = ("Consolas", 10, "bold")
