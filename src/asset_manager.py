@@ -35,7 +35,7 @@ class AssetManager():
 
         self.COMPRESSION = (1024,1024)
 
-        self.load_client_secrets()
+        self.secrets_status = self.load_client_secrets()
         self.client_info_missing = self.igdb_api_missing and self.rawg_api_missing
 
         if not self.igdb_api_missing:
@@ -43,10 +43,11 @@ class AssetManager():
 
     def load_client_secrets(self):
         # Check if IGDB secrets are added
+        secrets = None
         try:
             secrets = importlib.import_module("client_secrets")
         except ModuleNotFoundError:
-            print("client_secrets.py not found. Please create it with your IGDB credentials.")
+            return False
 
         if secrets:
             self.CLIENT_ID = secrets.CLIENT_ID
@@ -58,6 +59,7 @@ class AssetManager():
 
             if self.RAWG_API_KEY.strip() != '':
                 self.rawg_api_missing = False
+            return True
 
 
     def load_igdb_client_info(self):

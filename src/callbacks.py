@@ -25,6 +25,7 @@ class CallbackManager:
         self.assets_dir = self.asset_manager.assets_dir
         self.config_dir = self.config_manager.config_dir
 
+        self.config = None
         self.applied_config = None
         self.compact = False
         

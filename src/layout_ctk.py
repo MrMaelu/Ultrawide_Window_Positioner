@@ -17,6 +17,7 @@ class CtkGuiManager(ctk.CTk):
     def __init__(self, compact=0, is_admin=False, use_images=0, snap=0, details=0, config_manager=None, asset_manager=None):
         super().__init__()
         self.asset_manager = asset_manager
+        
         self.callback_manager = CallbackManager(self, config_manager, self.asset_manager)
         self.callbacks = self.callback_manager.callbacks
         self.assets_dir = self.callback_manager.assets_dir
@@ -230,6 +231,9 @@ class CtkGuiManager(ctk.CTk):
 
         self.setup_buttons()
         self.format_apply_reset_button()
+        
+        #if self.asset_manager.client_info_missing:
+        #    self.info_label.configure(text=f'"client_secrets.py" not found. Please create it with your IGDB/RAWG credentials. Downloading disabled.')
 
     def setup_buttons(self):
         self.admin_button.pack(side=ctk.RIGHT, padx=5)
