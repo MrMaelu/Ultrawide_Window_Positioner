@@ -138,7 +138,7 @@ class CtkGuiManager(ctk.CTk):
         hover_color = hover_color or self.colors.BUTTON_HOVER
         text_color = text_color or self.colors.TEXT_NORMAL
         button = ctk.CTkButton(
-            parent,
+            master=parent,
             text=text,
             command=command,
             width=width,
@@ -149,7 +149,9 @@ class CtkGuiManager(ctk.CTk):
             text_color=self.colors.TEXT_NORMAL,
             border_width=border_width
         )
-        self.buttons.append(button)
+        if button_list == None:
+            button_list = self.buttons
+        button_list.append(button)
         return button
 
     def create_layout(self):
@@ -232,7 +234,25 @@ class CtkGuiManager(ctk.CTk):
         self.format_apply_reset_button()
 
     def setup_buttons(self):
+        self.apply_config_button = self.create_button(parent=self.buttons_1_container, text="Apply config", command=self.callbacks.get("apply_config"))
+        self.create_config_button = self.create_button(parent=self.buttons_1_container, text="Create config", command=self.callbacks.get("create_config"))
+        self.delete_config_button = self.create_button(parent=self.buttons_1_container, text="Delete config", command=self.callbacks.get("delete_config"))
+        self.config_folder_button = self.create_button(parent=self.buttons_1_container, text="Open config folder", command=self.callbacks.get("open_config_folder"))
+        self.toggle_compact_button = self.create_button(parent=self.buttons_2_container, text="Toggle compact", command=self.callbacks.get("toggle_compact"))
+        self.screenshot_button = self.create_button(parent=self.buttons_2_container, text="Take screenshots", command=self.callbacks.get("screenshot"))
+        self.aot_button = self.create_button(parent=self.aot_frame, text="Toggle AOT", command=self.callbacks.get("toggle_AOT"), state=ctk.DISABLED)
+
+        self.admin_button = self.create_button(
+            parent=self.combo_frame,
+            command=self.callbacks.get("restart_as_admin"),
+            text="Restart as Admin" if not self.is_admin else "Admin mode",
+            state=ctk.DISABLED if self.is_admin else ctk.NORMAL,
+            fg_color=Colors.BUTTON_ACTIVE if self.is_admin else Colors.BUTTON_NORMAL,
+            text_color=Colors.TEXT_NORMAL,
+            )
+
         self.admin_button.pack(side=ctk.RIGHT, padx=5)
+        self.theme_switch.pack_forget()
         self.theme_switch.pack(side=ctk.RIGHT, padx=5)
 
         # First line of buttons
@@ -289,9 +309,9 @@ class CtkGuiManager(ctk.CTk):
             if self.client_info_missing: self.image_download_button.configure(text="Client info missing", state=ctk.DISABLED)
             self.image_download_button.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=5, pady=5)
 
-            # Image folder button
-            self.image_folder_button = self.create_button(self.buttons_2_container, text="Open image folder", command=self.callbacks.get("image_folder"))
-            self.image_folder_button.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=5, pady=5)
+        # Image folder button
+        self.image_folder_button = self.create_button(parent=self.buttons_2_container, text="Open image folder", command=self.callbacks.get("image_folder"))
+        self.image_folder_button.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=5, pady=5)
 
     def setup_managed_text(self):
         if not hasattr(self, 'managed_frame') or not self.managed_frame.winfo_ismapped():
@@ -385,6 +405,7 @@ class CtkGuiManager(ctk.CTk):
                 else:
                     button.pack_forget()
 
+            self.theme_switch.pack_forget()
             self.aot_label.pack(side=ctk.TOP, padx=5, pady=5)
             self.manage_image_buttons(destroy=True)
             self.setup_managed_text()
@@ -397,10 +418,10 @@ class CtkGuiManager(ctk.CTk):
                     button.pack_forget()
 
             self.aot_label.pack_forget()
-
-            self.setup_buttons()
+            
             self.remove_managed_windows_frame()
             self.manage_image_buttons(destroy=False)
+            self.setup_styles()
         
         self.scale_gui()
 
