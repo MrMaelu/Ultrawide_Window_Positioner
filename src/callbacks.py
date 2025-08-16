@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import threading
 from ctypes import windll, WinError, get_last_error
 
@@ -189,7 +190,7 @@ class CallbackManager:
                 except Exception as e:
                     print(f"Error applying settings to window {match['config_name']}: {e}")
                     continue
-                
+
         self.update_always_on_top_status()
         self.app.applied_config = selected_config_shortname
         self.app.format_apply_reset_button(disable=0)
@@ -316,6 +317,17 @@ class CallbackManager:
 
     # Take a screenshot of any detected window for the currently loaded config
     def take_screenshot(self):
+        reset_config = False
+        # Resetting current active config (if any)
+        if self.applied_config:
+            if self.applied_config != self.config:
+                self.apply_settings()
+            else:
+                reset_config = True
+        else:
+            # Applying currently selected config
+            self.apply_settings()
+
         existing_windows, missing_windows = self.window_manager.find_matching_windows(self.config)
         if existing_windows:
             for window in existing_windows:
@@ -327,6 +339,10 @@ class CallbackManager:
             self.asset_manager.bring_to_front(hwnd=self.app.winfo_id())
             self.compute_window_layout(self.config, missing_windows)
             self.app.info_label.configure(text="Screenshot taken for all detected windows.")
+        
+        if not reset_config:
+            self.apply_settings()
+        
 
     def update_always_on_top_status(self):
         try:

@@ -17,8 +17,9 @@ class ConfigManager:
 
     def __init__(self, base_path=None):
         self.base_path = base_path
-        self.config_dir = os.path.join(base_path, "configs")
-        self.settings_dir = os.path.join(base_path, "settings")
+
+        self.config_dir = os.path.join(self.base_path, "configs")
+        self.settings_dir = os.path.join(self.base_path, "settings")
 
         self.settings_file = os.path.join(self.settings_dir, "settings.json")
         self.layout_config_file = os.path.join(self.settings_dir, "layout_config.ini")
@@ -179,7 +180,9 @@ class ConfigManager:
             entries = []
             for title, settings in window_data.items():
                 if title and title.strip():
-                    section_name = settings.get('name') or title
+                    if not settings.get('name'):
+                        continue
+                    section_name = settings.get('name')
                     section_name = clean_window_title(section_name, sanitize=True)
                     position = str(settings.get('position') or '0,0')
                     try:

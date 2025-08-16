@@ -1,5 +1,6 @@
 import os
-import ctypes
+import time
+from ctypes import windll
 import webbrowser
 import pywinstyles
 import tkinter as tk
@@ -13,46 +14,54 @@ from utils import WindowInfo, clean_window_title, invert_hex_color
 from constants import UIConstants, Colors, Messages, Fonts, LayoutDefaults
 from callbacks import CallbackManager
 
+
 class CtkGuiManager(ctk.CTk):
     def __init__(self, compact=0, is_admin=False, use_images=0, snap=0, details=0, config_manager=None, asset_manager=None):
         super().__init__()
-        self.asset_manager = asset_manager
-        
-        self.callback_manager = CallbackManager(self, config_manager, self.asset_manager)
-        self.callbacks = self.callback_manager.callbacks
-        self.assets_dir = self.callback_manager.assets_dir
 
+        # Set application title
+        self.application_name = "Ultrawide Window Positioner"
+        self.title(self.application_name)
+
+        # Assign the asset manager
+        self.asset_manager = asset_manager
+
+        # Assign the config manager
         self.config_manager = config_manager
 
+        # Initialize the callback manager
+        self.callback_manager = CallbackManager(self, self.config_manager, self.asset_manager)
+
+        # Get the callback functions from callback manager
+        self.callbacks = self.callback_manager.callbacks
+
+        # Get the asset directory from callback manager
+        self.assets_dir = self.callback_manager.assets_dir
+
+        # Set the initial status for style
         self.compact_mode = compact
         self.style_dark = ctk.IntVar(value=1)
         self.style = "dark"
         self.ctk_theme_bg = None
+
+        # Initialize config variables
         self.config_active = False
         self.applied_config = None
         
+        # Get colors from constants
         self.colors = Colors()
 
+        # Initialize button variables
         self.snap = ctk.IntVar(value=snap)
         self.reapply = ctk.IntVar()
         self.details = ctk.IntVar(value=details)
         self.use_images = ctk.IntVar(value=use_images)
-        
-        self.application_name = "Ultrawide Window Positioner"
-        self.title(self.application_name)
 
-        self.res_x = self.winfo_screenwidth()
-        self.res_y = self.winfo_screenheight()
+        # Get screen area size
+        self.res_x = windll.user32.GetSystemMetrics(78)
+        self.res_y = windll.user32.GetSystemMetrics(79)
 
-        user32 = ctypes.windll.user32
-        # GetSystemMetrics(78) = SM_CXVIRTUALSCREEN (total width)
-        # GetSystemMetrics(79) = SM_CYVIRTUALSCREEN (total height)
-        self.res_x = user32.GetSystemMetrics(78)
-        self.res_y = user32.GetSystemMetrics(79)
-
-        print(f"Combined virtual screen resolution: {self.res_x}x{self.res_y}")
-
-
+        # Set application startup position
         if snap == 0:
             self.pos_x = (self.res_x // 2) - ((UIConstants.WINDOW_WIDTH if not self.compact_mode else UIConstants.COMPACT_WIDTH) // 2)
         elif snap == 1:
@@ -60,103 +69,63 @@ class CtkGuiManager(ctk.CTk):
         elif snap == 2:
             self.pos_x = self.res_x - (UIConstants.WINDOW_WIDTH if not self.compact_mode else UIConstants.COMPACT_WIDTH) - 7
         
-        self.pos_x = self.pos_y = 0
-
         self.pos_y = (self.res_y // 2) - ((UIConstants.WINDOW_HEIGHT if not self.compact_mode else UIConstants.COMPACT_HEIGHT) // 2)
         self.geometry(f"{UIConstants.WINDOW_WIDTH}x{UIConstants.WINDOW_HEIGHT}+{self.pos_x}+{self.pos_y}")
         self.minsize(UIConstants.WINDOW_MIN_WIDTH, UIConstants.WINDOW_MIN_HEIGHT)
-        
+
+        # Get admin status
         self.is_admin = is_admin
+
+        # Get status for API credentials for IGDB and RAWG
         self.client_info_missing = self.asset_manager.client_info_missing
 
-        self.default_font = Fonts.TEXT_NORMAL
-
+        # Initialize variables
         self.canvas = None
-        self.buttons_container = None
         self.managed_label = None
         self.managed_text = None
         self.ratio_label = None
-        self.hovering_layout = False
         self.layout_frame_create_config = None
         self.layout_number = 0
 
+        # Get auto-align layouts from config file (will create default file if file is missing)
         self.auto_align_layouts = self.config_manager.load_or_create_layouts(self.config_manager.layout_config_file)
 
+        # List of widgets for easy management
         self.buttons = []
-        
+        self.managed_widgets = []
+
+        # Start to set up and draw the GUI
         self.draw_gui()
 
+
+
+# *** GUI setup functions *** #
+
+# GUI start point
     def draw_gui(self):
+        # Set theme
         ctk.set_appearance_mode("dark" if self.style_dark.get() else "light")
+
+        # Draw main GUI components
         self.create_layout()
-        self.manage_image_buttons()
 
-    def setup_styles(self):
-        ctk.set_appearance_mode("dark" if self.style_dark.get() else "light")
-        for button in self.buttons:
-            button.destroy()
-        
-        self.setup_buttons()
-        self.create_image_buttons()
-        self.apply_titlebar_style()
+        # Create secondary widgets
+        self.manage_secondary_widgets()
 
-    def invert_colors(self):
-        for attr in dir(self.colors):
-            if attr.isupper():
-                value = getattr(self.colors, attr)
-                if isinstance(value, str):
-                    setattr(self.colors, attr, invert_hex_color(value))
-
-    def apply_titlebar_style(self):
-        try:
-            window = ctypes.windll.user32.GetActiveWindow()
-            pywinstyles.apply_style(window, "dark" if self.style_dark.get() else "light")
-            pywinstyles.change_header_color(window, color=Colors.TITLE_BAR_COLOR if self.style_dark.get() else invert_hex_color(Colors.TITLE_BAR_COLOR))
-            pywinstyles.change_title_color(window, color=Colors.TITLE_TEXT_COLOR if self.style_dark.get() else invert_hex_color(Colors.TITLE_TEXT_COLOR))
-        except Exception as e:
-            print(f"Error applying dark mode to titlebar: {e}")
-
-    def create_button(self,
-            parent,
-            text,
-            command,
-            width=UIConstants.BUTTON_WIDTH,
-            height=UIConstants.BUTTON_HEIGHT,
-            fg_color=Colors.BUTTON_NORMAL,
-            hover_color=Colors.BUTTON_HOVER,
-            text_color=Colors.TEXT_NORMAL,
-            state=ctk.NORMAL,
-            border_width=2
-            ):
-        fg_color = fg_color or self.colors.BUTTON_NORMAL
-        hover_color = hover_color or self.colors.BUTTON_HOVER
-        text_color = text_color or self.colors.TEXT_NORMAL
-        button = ctk.CTkButton(
-            parent,
-            text=text,
-            command=command,
-            width=width,
-            height=height,
-            state=state,
-            fg_color=fg_color if self.style_dark.get() else invert_hex_color(fg_color),
-            hover_color=hover_color if self.style_dark.get() else invert_hex_color(hover_color),
-            text_color=text_color if self.style_dark.get() else invert_hex_color(text_color),
-            border_width=border_width
-        )
-        self.buttons.append(button)
-        return button
-
+# Draw main GUI components
     def create_layout(self):
-
         # Set up frames
         self.main_frame = ctk.CTkFrame(self) # Main frame
         self.main_frame.pack(fill=ctk.BOTH, expand=True)
 
         self.header_frame = ctk.CTkFrame(self.main_frame) # Header frame
-        self.managed_frame = ctk.CTkFrame(self.main_frame) # Managed windows
+        self.managed_frame = ctk.CTkFrame(self.main_frame, height=10) # Managed windows
         self.combo_frame = ctk.CTkFrame(self.main_frame) # Config selection menu
-        self.layout_container = ctk.CTkFrame(self.main_frame) # Layout frame
+
+        self.layout_container = ctk.CTkFrame(self.main_frame, height=10)
         self.layout_frame = None  # Will hold the ScreenLayoutFrame
+        
+        
         self.status_frame = ctk.CTkFrame(self.main_frame)  # Status frame
         self.button_frame = ctk.CTkFrame(self.main_frame) # Buttons main frame
         self.buttons_1_container = ctk.CTkFrame(self.button_frame) # First row of buttons
@@ -169,7 +138,9 @@ class CtkGuiManager(ctk.CTk):
         self.managed_frame.pack(side=ctk.TOP, fill=ctk.BOTH)
         self.managed_frame.pack_forget()  # Hide it initially
         self.combo_frame.pack(side=ctk.TOP, fill=ctk.BOTH)
+
         self.layout_container.pack(side=ctk.TOP, fill=ctk.BOTH, expand=True)
+
         self.status_frame.pack(side=ctk.TOP, fill=ctk.BOTH)
         self.button_frame.pack(side=ctk.TOP, fill=ctk.BOTH)
         self.buttons_1_container.pack(side=ctk.TOP, fill=ctk.X)
@@ -186,14 +157,14 @@ class CtkGuiManager(ctk.CTk):
         self.admin_label = ctk.CTkLabel(self.header_frame, text=f"{app_mode} mode", text_color=self.colors.ADMIN_ENABLED if self.is_admin else self.colors.TEXT_NORMAL)
         self.admin_label.pack(side=ctk.RIGHT, fill=ctk.X, padx=5)
 
+        # Config selection dropdown
         self.combo_box = ctk.CTkComboBox(self.combo_frame, width=300, command=lambda _: self.callbacks["config_selected"](self.combo_box), state="readonly")
         self.combo_box.pack(side=ctk.LEFT, padx=5, pady=5)
         self.combo_box.bind("<MouseWheel>", self.on_mousewheel)
 
-
-
+        # Toggle dark / light theme switch
         self.theme_switch = ctk.CTkSwitch(self.combo_frame, text="light / dark", command=self.setup_styles, variable=self.style_dark, progress_color="black", fg_color="white")
-        #self.buttons.append(self.theme_switch)
+        #self.buttons.append(self.theme_switch) # Adding the switch to the buttons list may cause some issues. It will be outside the visible window in compact mode.
 
         # Info label
         self.info_label = ctk.CTkLabel(self.status_frame, text=f"")
@@ -202,15 +173,20 @@ class CtkGuiManager(ctk.CTk):
         self.auto_apply_switch = ctk.CTkSwitch(self.images_frame, text="Auto re-apply", variable=self.reapply, command=self.callbacks.get("auto_reapply"), progress_color=self.colors.TEXT_ALWAYS_ON_TOP, height=UIConstants.BUTTON_HEIGHT/2)
         self.auto_apply_switch.pack(side=ctk.LEFT, padx=10, pady=5)
 
-
+        # Always-on-top status label
         self.aot_label = ctk.CTkLabel(self.aot_container, text=Messages.ALWAYS_ON_TOP_DISABLED, width=UIConstants.BUTTON_WIDTH, anchor='w')
 
+        # Set up and draw the buttons
         self.setup_buttons()
+
+        # Set the correct style and status for the Apply / Reset button
         self.format_apply_reset_button()
         
+        # Optional label message on startup for missing API credentials
         #if self.asset_manager.client_info_missing:
         #    self.info_label.configure(text=f'"client_secrets.py" not found. Please create it with your IGDB/RAWG credentials. Downloading disabled.')
 
+# Create main buttons
     def setup_buttons(self):
         self.apply_config_button = self.create_button(self.buttons_1_container, text="Apply config", command=self.callbacks.get("apply_config"))
         self.create_config_button = self.create_button(self.buttons_1_container, text="Create config", command=self.callbacks.get("create_config"))
@@ -231,7 +207,7 @@ class CtkGuiManager(ctk.CTk):
 
         self.admin_button.pack(side=ctk.RIGHT, padx=5)
         self.theme_switch.pack_forget()
-        self.theme_switch.pack(side=ctk.RIGHT, padx=5)
+        self.theme_switch.pack(after=self.admin_button, side=ctk.RIGHT, padx=5)
 
         # First line of buttons
         self.apply_config_button.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=5, pady=5)
@@ -242,46 +218,16 @@ class CtkGuiManager(ctk.CTk):
         # Second line of buttons
         self.toggle_compact_button.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=5, pady=5)
         self.screenshot_button.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=5, pady=5)
-        
-        self.aot_button.pack(side=ctk.LEFT, fill=ctk.X, padx=5, pady=5)
 
         # Info label
         self.info_label.pack(side=ctk.LEFT, fill=ctk.X, padx=10)
 
         # AOT status label
         self.aot_label.pack(side=ctk.LEFT, fill=ctk.X, padx=5, pady=5)
+        self.aot_button.pack(before=self.aot_label, side=ctk.LEFT, fill=ctk.X, padx=5, pady=5)
 
-    def manage_image_buttons(self, destroy=False):
-        if destroy:
-            self.snap_on_open_label.destroy()
-            self.no_snap_on_open.destroy()
-            self.snap_left_on_open.destroy()
-            self.snap_right_on_open.destroy()
-            self.image_download_button.destroy()
-            self.image_folder_button.destroy()
-            self.details_switch.destroy()
-            self.toggle_images_switch.destroy()
-        else:
-            # Window details switch
-            self.details_switch = ctk.CTkSwitch(self.images_frame, text="Show window details", variable=self.details, command=self.callbacks.get("details"), progress_color=self.colors.TEXT_ALWAYS_ON_TOP)
-            self.details_switch.pack(side=ctk.LEFT, padx=10, pady=5)
 
-            # Snap on open buttons and label
-            self.snap_right_on_open = ctk.CTkRadioButton(self.images_frame, text="Snap right", variable=self.snap, value=2, command=self.callbacks.get("snap"), width=5, fg_color=self.colors.TEXT_ALWAYS_ON_TOP)
-            self.snap_right_on_open.pack(side=ctk.RIGHT, padx=(5, 10), pady=5)
-
-            self.no_snap_on_open = ctk.CTkRadioButton(self.images_frame, text="Center", variable=self.snap, value=0, command=self.callbacks.get("snap"), width=5, fg_color=self.colors.TEXT_ALWAYS_ON_TOP)
-            self.no_snap_on_open.pack(side=ctk.RIGHT, padx=5, pady=5)
-
-            self.snap_left_on_open = ctk.CTkRadioButton(self.images_frame, text="Snap left", variable=self.snap, value=1, command=self.callbacks.get("snap"), width=5, fg_color=self.colors.TEXT_ALWAYS_ON_TOP)
-            self.snap_left_on_open.pack(side=ctk.RIGHT, padx=5, pady=5)
-
-            self.snap_on_open_label = ctk.CTkLabel(self.aot_container, text="Application position on open:", height=UIConstants.BUTTON_HEIGHT/2)
-            self.snap_on_open_label.pack(side=ctk.RIGHT, fill=ctk.X, padx=50, pady=5)
-
-            self.toggle_images_switch = ctk.CTkSwitch(self.images_frame, text="Images", variable=self.use_images, command=self.callbacks.get("toggle_images"), progress_color=self.colors.TEXT_ALWAYS_ON_TOP)
-            self.toggle_images_switch.pack(side=ctk.LEFT, fill=ctk.X, padx=5)
-            self.create_image_buttons()
+# Create buttons for downloading and managing screen layout screenshot downloading
     def create_image_buttons(self):
         # Image download button
         self.image_download_button = self.create_button(self.buttons_2_container, text="Download images", command=self.callbacks.get("download_images"))
@@ -292,9 +238,55 @@ class CtkGuiManager(ctk.CTk):
         self.image_folder_button = self.create_button(self.buttons_2_container, text="Open image folder", command=self.callbacks.get("image_folder"))
         self.image_folder_button.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=5, pady=5)
 
+# Create or destroy secondary widgets
+    def manage_secondary_widgets(self, destroy=False):
+        if destroy:
+            # Destroy all managed widgets
+            for widget in self.managed_widgets:
+                widget.destroy()
+
+            # Empty widget list
+            self.managed_widgets = []
+
+            # Destroy download buttons
+            self.image_download_button.destroy()
+            self.image_folder_button.destroy()
+            
+        else:
+            # Window details switch
+            self.details_switch = ctk.CTkSwitch(self.images_frame, text="Show window details", variable=self.details, command=self.callbacks.get("details"), progress_color=self.colors.TEXT_ALWAYS_ON_TOP)
+            self.details_switch.pack(side=ctk.LEFT, padx=10, pady=5)
+            self.managed_widgets.append(self.details_switch)
+
+            # Toggles for application window position on open
+            self.snap_on_open_label = ctk.CTkLabel(self.aot_container, text="Application position on open:", height=UIConstants.BUTTON_HEIGHT/2)
+            self.snap_on_open_label.pack(side=ctk.RIGHT, fill=ctk.X, padx=50, pady=5)
+            self.managed_widgets.append(self.snap_on_open_label)
+
+            self.snap_right_on_open = ctk.CTkRadioButton(self.images_frame, text="Snap right", variable=self.snap, value=2, command=self.callbacks.get("snap"), width=5, fg_color=self.colors.TEXT_ALWAYS_ON_TOP)
+            self.snap_right_on_open.pack(side=ctk.RIGHT, padx=(5, 10), pady=5)
+            self.managed_widgets.append(self.snap_right_on_open)
+            
+            self.no_snap_on_open = ctk.CTkRadioButton(self.images_frame, text="Center", variable=self.snap, value=0, command=self.callbacks.get("snap"), width=5, fg_color=self.colors.TEXT_ALWAYS_ON_TOP)
+            self.no_snap_on_open.pack(side=ctk.RIGHT, padx=5, pady=5)
+            self.managed_widgets.append(self.no_snap_on_open)
+
+            self.snap_left_on_open = ctk.CTkRadioButton(self.images_frame, text="Snap left", variable=self.snap, value=1, command=self.callbacks.get("snap"), width=5, fg_color=self.colors.TEXT_ALWAYS_ON_TOP)
+            self.snap_left_on_open.pack(side=ctk.RIGHT, padx=5, pady=5)
+            self.managed_widgets.append(self.snap_left_on_open)
+
+            # Switch for toggling the use of screenshots in the layout frame
+            self.toggle_images_switch = ctk.CTkSwitch(self.images_frame, text="Images", variable=self.use_images, command=self.callbacks.get("toggle_images"), progress_color=self.colors.TEXT_ALWAYS_ON_TOP)
+            self.toggle_images_switch.pack(side=ctk.LEFT, fill=ctk.X, padx=5)
+            self.managed_widgets.append(self.toggle_images_switch)
+
+            # Recreate the download buttons
+            self.create_image_buttons()
+
+# Set up the window text for compact mode
     def setup_managed_text(self):
         if not hasattr(self, 'managed_frame') or not self.managed_frame.winfo_ismapped():
-            self.managed_frame.pack(before=self.button_frame, side=ctk.TOP, fill=ctk.X)
+            self.managed_frame.pack(before=self.button_frame, side=ctk.TOP, fill=ctk.BOTH, expand=True)
         
         if not self.managed_label:
             self.managed_label = ctk.CTkLabel(self.managed_frame, text="Managed windows:")
@@ -302,124 +294,20 @@ class CtkGuiManager(ctk.CTk):
         
         if not self.managed_text:
             self.managed_text = ctk.CTkTextbox(self.managed_frame, height=80)
-            self.managed_text.pack(side=ctk.TOP, fill=ctk.X, expand=False)
+            self.managed_text.pack(side=ctk.TOP, fill=ctk.BOTH, expand=True)
 
-    def update_managed_text(self, lines, aot_flags):
-        self.managed_text.configure(state=ctk.NORMAL)
-        self.managed_text.delete("1.0", ctk.END)
-
-        for i, line in enumerate(lines):
-            if aot_flags[i]:
-                self.managed_text.insert(ctk.END, line + "\n", "aot")
-            else:
-                self.managed_text.insert(ctk.END, line + "\n")
-
-        self.managed_text.tag_config("aot", foreground=self.colors.TEXT_ALWAYS_ON_TOP)
-        self.managed_text.configure(state=ctk.DISABLED)
-
-    def remove_managed_windows_frame(self):
-        if self.managed_label:
-            self.managed_label.destroy()
-            self.managed_label = None
-        if self.managed_text:
-            self.managed_text.destroy()
-            self.managed_text = None
-        self.managed_frame.pack_forget()
-    
-    def on_mousewheel(self, event):
-        values = self.combo_box.cget("values")
-        if not values:
-            return
-        try:
-            current_value = self.combo_box.get()
-            current_index = values.index(current_value)
-        except ValueError:
-            current_index = 0
-        if event.delta > 0:
-            new_index = max(0, current_index - 1)
-        else:
-            new_index = min(len(values) - 1, current_index + 1)
-        if new_index != current_index:
-            self.combo_box.set(values[new_index])
-            if "config_selected" in self.callbacks:
-                self.callbacks["config_selected"](self.combo_box)
-
+# Draw or redraw the layout preview
     def set_layout_frame(self, windows): 
         if self.layout_frame:
             self.layout_frame.destroy()
 
-        self.layout_frame = ScreenLayoutFrame(self.layout_container, self.res_x, self.res_y, windows, assets_dir=self.assets_dir, use_images=self.use_images, style_dark=self.style_dark, window_details=self.details, ctk_bg=self.ctk_theme_bg)
-        self.layout_frame.pack(side=ctk.TOP, fill=ctk.BOTH, expand=True)
+        self.layout_frame = ScreenLayoutFrame(self.layout_container, self.res_x, self.res_y, windows, assets_dir=self.assets_dir, use_images=self.use_images, style_dark=self.style_dark, window_details=self.details)
+        self.layout_frame.pack(side=ctk.TOP, fill=ctk.BOTH, padx=5, expand=True)
+        self.layout_frame.pack_propagate(False)
+        self.layout_frame.configure(height=100)
         self.layout_frame.canvas.bind("<MouseWheel>", self.on_mousewheel)
 
-    def scale_gui(self):
-        if self.compact_mode:
-            self.minsize(UIConstants.COMPACT_WIDTH, UIConstants.COMPACT_HEIGHT)
-            self.geometry(f"{UIConstants.COMPACT_WIDTH}x1")
-            self.update_idletasks()
-            height = self.winfo_reqheight()
-            self.geometry(f"{UIConstants.COMPACT_WIDTH}x{height}")
-        else:
-            self.minsize(UIConstants.WINDOW_MIN_WIDTH, UIConstants.WINDOW_MIN_HEIGHT)
-            self.geometry(f"{UIConstants.WINDOW_WIDTH}x{UIConstants.WINDOW_HEIGHT}")
-
-    def toggle_compact(self, startup=False):
-        if not startup:
-            if self.compact_mode == 0:
-                self.compact_mode = 1
-            else:
-                self.compact_mode = 0
-
-        compact_buttons = ['Apply config', 'Create config', 'Delete config', 'Toggle compact', 'Toggle AOT']
-
-        self.buttons = [b for b in self.buttons if b.winfo_exists()]
-        
-        if self.compact_mode:
-            if self.layout_container:
-                self.layout_container.pack_forget()
-
-            for button in self.buttons:
-                if button.cget("text") in compact_buttons:
-                    button.pack(side=ctk.TOP, fill=ctk.X, expand=False, padx=5)
-                else:
-                    button.pack_forget()
-
-            self.aot_label.pack(side=ctk.TOP, padx=5, pady=5)
-            self.manage_image_buttons(destroy=True)
-            self.setup_managed_text()
-        else:
-            if self.layout_container:
-                self.layout_container.pack(before=self.status_frame, side=ctk.TOP, fill=ctk.BOTH, expand=True)
-
-            for button in self.buttons:
-                if button.cget("text") in compact_buttons:
-                    button.pack_forget()
-
-            self.aot_label.pack_forget()
-
-            self.remove_managed_windows_frame()
-            self.manage_image_buttons(destroy=False)
-            self.setup_styles()
-        
-        self.scale_gui()
-
-    def format_apply_reset_button(self, selected_config_shortname=None, disable=None):
-        if disable is not None:
-            state = ctk.DISABLED if disable == 1 else ctk.NORMAL
-            self.apply_config_button.configure(state=state)
-            return
-
-        if self.config_active:
-            self.apply_config_button.configure(text="Reset config", fg_color=self.colors.BUTTON_ACTIVE, hover_color=self.colors.BUTTON_ACTIVE_HOVER)
-            self.info_label.configure(text=f"Active config: {selected_config_shortname if selected_config_shortname else self.applied_config}")
-            self.aot_button.configure(state=ctk.NORMAL)
-
-        elif not self.config_active:
-            self.apply_config_button.configure(text="Apply config", fg_color=self.colors.BUTTON_NORMAL)
-            self.info_label.configure(text=f"")
-            self.aot_button.configure(state=ctk.DISABLED)
-            self.reapply.set(0)
-
+# Create the config creation pop-up window
     def create_config_ui(self, parent, window_titles, save_callback, settings_callback, refresh_callback):
         parent.attributes('-disabled', True)
         entry_font = ctk.CTkFont('Consolas 10')
@@ -517,7 +405,6 @@ class CtkGuiManager(ctk.CTk):
                                                                 style_dark=self.style_dark,
                                                                 window_details=self.details,
                                                                 use_images=self.use_images,
-                                                                ctk_bg=self.ctk_theme_bg
                                                                 )
                     self.layout_frame_create_config.pack(expand=True, fill='both')
                 except Exception as e:
@@ -776,8 +663,207 @@ class CtkGuiManager(ctk.CTk):
         self.create_button(selection_frame, text="Confirm Selection", command=confirm_selection).pack(padx=10, pady=10)
 
 
+
+# *** Theme functions *** #
+
+    # Set up the color theme
+    def setup_styles(self):
+        ctk.set_appearance_mode("dark" if self.style_dark.get() else "light")
+        
+        # Destroy all the buttons since the theme can only be applied when creating
+        for button in self.buttons:
+            button.destroy()
+        
+        # Recreating main buttons
+        self.setup_buttons()
+        
+        # Recreating buttons not used in compact mode
+        self.create_image_buttons()
+
+        # Applying the correct style to the titlebar
+        self.apply_titlebar_style()
+
+        # Redraw the layout preview
+        self.callbacks["config_selected"](self.combo_box)
+
+
+
+# Will apply the correct style to the titlebar
+    def apply_titlebar_style(self):
+        try:
+            window = windll.user32.GetActiveWindow()
+            pywinstyles.apply_style(window, "dark" if self.style_dark.get() else "light")
+            pywinstyles.change_header_color(window, color=Colors.TITLE_BAR_COLOR if self.style_dark.get() else invert_hex_color(Colors.TITLE_BAR_COLOR))
+            pywinstyles.change_title_color(window, color=Colors.TITLE_TEXT_COLOR if self.style_dark.get() else invert_hex_color(Colors.TITLE_TEXT_COLOR))
+        except Exception as e:
+            print(f"Error applying dark mode to titlebar: {e}")
+
+# Destroy the managed windows text (used when leaving compact mode)
+    def remove_managed_windows_frame(self):
+        if self.managed_label:
+            self.managed_label.destroy()
+            self.managed_label = None
+        if self.managed_text:
+            self.managed_text.destroy()
+            self.managed_text = None
+        self.managed_frame.pack_forget()
+
+# Set the correct style and status for the Apply / Reset button
+    def format_apply_reset_button(self, selected_config_shortname=None, disable=None):
+        if disable is not None:
+            state = ctk.DISABLED if disable == 1 else ctk.NORMAL
+            self.apply_config_button.configure(state=state)
+            return
+
+        if self.config_active:
+            self.apply_config_button.configure(text="Reset config", fg_color=self.colors.BUTTON_ACTIVE, hover_color=self.colors.BUTTON_ACTIVE_HOVER)
+            self.info_label.configure(text=f"Active config: {selected_config_shortname if selected_config_shortname else self.applied_config}")
+            self.aot_button.configure(state=ctk.NORMAL)
+
+        elif not self.config_active:
+            self.apply_config_button.configure(text="Apply config", fg_color=self.colors.BUTTON_NORMAL)
+            self.info_label.configure(text=f"")
+            self.aot_button.configure(state=ctk.DISABLED)
+            self.reapply.set(0)
+
+
+
+# *** Helper functions *** #
+
+# Will invert all the colors in the colors list (self.colors)
+    def invert_colors(self):
+        for attr in dir(self.colors):
+            if attr.isupper():
+                value = getattr(self.colors, attr)
+                if isinstance(value, str):
+                    setattr(self.colors, attr, invert_hex_color(value))
+
+# Helper function for creating buttons in a consistent style
+    def create_button(self,
+            parent,
+            text,
+            command,
+            width=UIConstants.BUTTON_WIDTH,
+            height=UIConstants.BUTTON_HEIGHT,
+            fg_color=Colors.BUTTON_NORMAL,
+            hover_color=Colors.BUTTON_HOVER,
+            text_color=Colors.TEXT_NORMAL,
+            state=ctk.NORMAL,
+            border_width=2
+            ):
+        fg_color = fg_color or self.colors.BUTTON_NORMAL
+        hover_color = hover_color or self.colors.BUTTON_HOVER
+        text_color = text_color or self.colors.TEXT_NORMAL
+        button = ctk.CTkButton(
+            parent,
+            text=text,
+            command=command,
+            width=width,
+            height=height,
+            state=state,
+            fg_color=fg_color if self.style_dark.get() else invert_hex_color(fg_color),
+            hover_color=hover_color if self.style_dark.get() else invert_hex_color(hover_color),
+            text_color=text_color if self.style_dark.get() else invert_hex_color(text_color),
+            border_width=border_width
+        )
+        self.buttons.append(button)
+        return button
+
+# Set the main window size for full / compact mode
+    def scale_gui(self):
+        if self.compact_mode:
+            self.minsize(UIConstants.COMPACT_WIDTH, UIConstants.COMPACT_HEIGHT)
+            self.geometry(f"{UIConstants.COMPACT_WIDTH}x1")
+            self.update_idletasks()
+            height = self.winfo_reqheight()
+            self.geometry(f"{UIConstants.COMPACT_WIDTH}x{height}")
+        else:
+            self.minsize(UIConstants.WINDOW_MIN_WIDTH, UIConstants.WINDOW_MIN_HEIGHT)
+            self.geometry(f"{UIConstants.WINDOW_WIDTH}x{UIConstants.WINDOW_HEIGHT}")
+
+# Update the text for the managed windows view (for compact mode)
+    def update_managed_text(self, lines, aot_flags):
+        self.managed_text.configure(state=ctk.NORMAL)
+        self.managed_text.delete("1.0", ctk.END)
+
+        for i, line in enumerate(lines):
+            if aot_flags[i]:
+                self.managed_text.insert(ctk.END, line + "\n", "aot")
+            else:
+                self.managed_text.insert(ctk.END, line + "\n")
+
+        self.managed_text.tag_config("aot", foreground=self.colors.TEXT_ALWAYS_ON_TOP)
+        self.managed_text.configure(state=ctk.DISABLED)
+
+# Handle mousewheel events for scrolling config list and in the layout preview
+    def on_mousewheel(self, event):
+        values = self.combo_box.cget("values")
+        if not values:
+            return
+        try:
+            current_value = self.combo_box.get()
+            current_index = values.index(current_value)
+        except ValueError:
+            current_index = 0
+        if event.delta > 0:
+            new_index = max(0, current_index - 1)
+        else:
+            new_index = min(len(values) - 1, current_index + 1)
+        if new_index != current_index:
+            self.combo_box.set(values[new_index])
+            if "config_selected" in self.callbacks:
+                self.callbacks["config_selected"](self.combo_box)
+
+# Toggle between full view and compact mode
+    def toggle_compact(self, startup=False):
+        if not startup:
+            if self.compact_mode == 0:
+                self.compact_mode = 1
+            else:
+                self.compact_mode = 0
+
+        compact_buttons = ['Apply config', 'Reset config', 'Create config', 'Delete config', 'Toggle compact', 'Toggle AOT']
+
+        self.buttons = [b for b in self.buttons if b.winfo_exists()]
+        
+        if self.compact_mode:
+            if self.layout_container:
+                self.layout_container.pack_forget()
+
+            for button in self.buttons:
+                if button.cget("text") in compact_buttons:
+                    button.pack(side=ctk.TOP, fill=ctk.X, expand=False, padx=5)
+                else:
+                    button.pack_forget()
+            
+            self.theme_switch.pack_forget()
+
+            self.aot_label.pack(side=ctk.TOP, padx=5, pady=5)
+            self.manage_secondary_widgets(destroy=True)
+            self.setup_managed_text()
+            self.format_apply_reset_button()
+        else:
+            if self.layout_container:
+                self.layout_container.pack(before=self.status_frame, side=ctk.TOP, fill=ctk.BOTH, expand=True)
+
+            for button in self.buttons:
+                if button.cget("text") in compact_buttons:
+                    button.pack_forget()
+
+            self.aot_label.pack_forget()
+
+            self.remove_managed_windows_frame()
+            self.manage_secondary_widgets(destroy=False)
+            self.setup_styles()
+            self.format_apply_reset_button()
+        
+        self.scale_gui()
+
+
+
+
 class ScreenLayoutFrame(ctk.CTkFrame):
-    def __init__(self, parent, screen_width, screen_height, windows: List[WindowInfo], assets_dir, ctk_bg, use_images=False, style_dark=True, window_details=True):
+    def __init__(self, parent, screen_width, screen_height, windows: List[WindowInfo], assets_dir, use_images=False, style_dark=True, window_details=True):
         super().__init__(parent)
         self.windows = windows
         self.style_dark = style_dark
@@ -785,7 +871,7 @@ class ScreenLayoutFrame(ctk.CTkFrame):
         self.window_details = window_details.get()
 
         self.colors = Colors()
-        if not self.style_dark:
+        if not self.style_dark.get():
             for attr in dir(self.colors):
                 if attr.isupper():
                     value = getattr(self.colors, attr)
@@ -795,63 +881,134 @@ class ScreenLayoutFrame(ctk.CTkFrame):
         self.assets_dir = assets_dir
         self.use_images = use_images.get()
 
-        self.canvas = tk.Canvas(self, bg=self.colors.BACKGROUND)
+        parent_color = parent.cget("fg_color")
+        rgb = self.winfo_rgb(parent_color[self.style_dark.get()])
+        self.hex_color = "#%02x%02x%02x" % (rgb[0]//256, rgb[1]//256, rgb[2]//256)
+
+        self.canvas = tk.Canvas(self, bg=self.hex_color)
         self.canvas.configure(highlightthickness=0, bd=0)
         self.canvas.pack(fill=ctk.BOTH, expand=True)
         self.canvas.bind("<Configure>", self.on_resize)
+
+        self.width = 0
+        self.height = 0
 
         self.screen_width = screen_width
         self.screen_height = screen_height
         self.taskbar_height = UIConstants.TASKBAR_HEIGHT
 
-        self.line_height = 16
+        self.line_height = 15
 
-        self.compute_bounds()
-    
-    def redraw(self):
-        width = self.canvas.winfo_width()
-        height = self.canvas.winfo_height()
+
+
+    # Recreate the layout when the window is resized
+    def on_resize(self, event):
+        width = event.width
+        height = event.height
         self.draw_layout(width, height)
 
-    def compute_bounds(self):
-        if not self.windows:
-            self.min_x, self.min_y = 0, 0
-            self.max_x, self.max_y = self.screen_width, self.screen_height
-            return
 
-        xs = []
-        ys = []
-        xs_end = []
-        ys_end = []
+    # Draw all layout preview items on the canvas
+    def draw_layout(self, width, height):
+        self.canvas.delete("all")
 
-        for w in self.windows:
-            xs.append(w.pos_x)
-            ys.append(w.pos_y)
-            xs_end.append(w.pos_x + w.width)
-            ys_end.append(w.pos_y + w.height)
+        self.width = width
+        self.height = height
 
-        self.min_x = min(xs)
-        self.min_y = min(ys)
-        self.max_x = max(xs_end)
-        self.max_y = max(ys_end)
+        frame_width = 15
+        edge_gap = 10
+        padding = (frame_width / 2)
 
-    def on_resize(self, event):
-        self.draw_layout(event.width, event.height)
+        drawable_height = height - frame_width * 2
+        drawable_width = width - frame_width * 2
 
-    def draw_text_with_bg(self, canvas, x, y, text, font, text_color, bg_color, anchor="nw", justify="left", line_height=None):
-        line_height = line_height or self.line_height
-        text_width = len(text) * 7
-        # Draw background rectangle
-        canvas.create_rectangle(
-            x - 2,
-            y,
-            x + text_width + 2,
-            y + line_height,
-            fill=bg_color,
-            outline=""
+        screen_ratio = self.screen_width / self.screen_height
+        canvas_ratio = drawable_width / drawable_height
+
+        if canvas_ratio > screen_ratio:
+            scale = drawable_height / self.screen_height
+            scaled_width = scale * self.screen_width
+            x_offset = (drawable_width - scaled_width) / 2 + frame_width
+            y_offset = frame_width
+        else:
+            scale = drawable_width / self.screen_width
+            scaled_height = scale * self.screen_height
+            x_offset = frame_width
+            y_offset = (drawable_height - scaled_height) / 2 + frame_width
+
+        frame_left = x_offset - padding
+        frame_top = y_offset - padding
+        frame_right = padding + x_offset + scale * self.screen_width
+        frame_bottom = padding + y_offset + scale * self.screen_height
+
+
+        # Frame background
+        self.canvas.create_rectangle(
+            frame_left, frame_top, frame_right, frame_bottom,
+            outline=self.colors.WINDOW_BORDER, width=frame_width, fill="#292929"
         )
+
+        aot_windows = []
+        regular_windows = []
+
+        for win in self.windows:
+            if win.always_on_top:
+                aot_windows.append(win)
+            else:
+                regular_windows.append(win)
+
+        # Drawing regular windows first
+        for window in regular_windows:
+            self.draw_window(x_offset, y_offset, window, scale)
+
+        # Drawing the taskbar
+        self.canvas.create_rectangle(
+            frame_left + padding,
+            frame_bottom - padding - UIConstants.TASKBAR_HEIGHT * scale,
+            frame_right - padding,
+            frame_bottom - padding,
+            fill=self.colors.TASKBAR,
+            outline="",
+            width=2
+        )
+
+        # Drawing always-on-top windows
+        for window in aot_windows:
+            self.draw_window(x_offset, y_offset, window, scale)
+
+
+        # Drawing the frame outline (monitor bezel) last
+        color_limit = 80
+        for i in range(frame_width):
+            t = i / (frame_width - 1)
+
+            if t <= 0.5:
+                # first half:
+                val = int(color_limit * (t * 2 * 0.5))
+            else:
+                # second half:
+                val = int(color_limit * ((1 - t) * 2 * 0.5))
+
+            # Clamp for safety
+            val = max(0, min(color_limit, val))
+
+            hexval = f"{val:02x}"
+            color = f"#{hexval}{hexval}{hexval}"
+
+            self.canvas.create_rectangle(
+                frame_left - int(frame_width/2) + i, frame_top - int(frame_width/2) + i,
+                frame_right + int(frame_width/2) - i - 1, frame_bottom + int(frame_width/2) - i - 1,
+                outline=color, width=1, fill=""
+            )
+
+        # Place all text above other objects
+        self.canvas.tag_raise("overlay_text")
+
+
+    # Create a text element with background
+    def draw_text_with_bg(self, canvas, x, y, text, font, text_color, bg_color, anchor="nw", justify="left"):
         # Draw text
-        return canvas.create_text(
+        text_id = canvas.create_text(
             x,
             y,
             text=text,
@@ -861,69 +1018,46 @@ class ScreenLayoutFrame(ctk.CTkFrame):
             justify=justify
         )
 
+        # Draw background box
+        bbox = canvas.bbox(text_id)
+        if bbox:
+            bbox_id = canvas.create_rectangle(bbox, fill=bg_color, outline="")
+            canvas.tag_lower(bbox_id, text_id)
+            canvas.itemconfig(bbox_id, tags=("overlay_text",))
+        
+        # Set text as overlay
+        canvas.itemconfig(text_id, tags=("overlay_text",))
 
-    def draw_layout(self, width, height):
-        self.canvas.delete("all")
+        return text_id
 
-        padding = 5
-        drawable_height = height - padding * 2
-        drawable_width = width - padding * 2
 
-        screen_ratio = self.screen_width / self.screen_height
-        canvas_ratio = drawable_width / drawable_height
+    # Draw scaled window inside frame
+    def draw_window(self, x_offset, y_offset, win, scale):
+        x = x_offset + win.pos_x * scale
+        y = y_offset + win.pos_y * scale
+        w = win.width * scale
+        h = win.height * scale
 
-        if canvas_ratio > screen_ratio:
-            scale = drawable_height / self.screen_height
-            scaled_width = scale * self.screen_width
-            x_offset = (drawable_width - scaled_width) / 2 + padding
-            y_offset = padding
-        else:
-            scale = drawable_width / self.screen_width
-            scaled_height = scale * self.screen_height
-            x_offset = padding
-            y_offset = (drawable_height - scaled_height) / 2 + padding
+        border_color = self.colors.WINDOW_BORDER
+        fill_color = Colors.WINDOW_ALWAYS_ON_TOP if win.always_on_top else self.colors.WINDOW_NORMAL
 
-        frame_left = x_offset
-        frame_top = y_offset
-        frame_right = x_offset + scale * self.screen_width
-        frame_bottom = y_offset + scale * self.screen_height
-        frame_width = 5
-
-        # Backgound
+        # Draw window rectangle
         self.canvas.create_rectangle(
-            frame_left, frame_top, frame_right, frame_bottom,
-            outline=self.colors.WINDOW_BORDER, width=frame_width
-        )
+            x, y, x + w, y + h,
+            fill=fill_color,
+            outline=border_color,
+            width=2
+            )
 
-        # Taskbar
-        self.canvas.create_rectangle(
-            frame_left,
-            frame_bottom - UIConstants.TASKBAR_HEIGHT * scale,
-            frame_right,
-            frame_bottom,
-            fill=self.colors.TASKBAR,
-            outline=""
-        )
+        # Load images
+        self.draw_images(x, y, w, h, win, scale)
 
-        # Draw window frames
-        for win in self.windows:
-            x = x_offset + win.pos_x * scale
-            y = y_offset + win.pos_y * scale
-            w = win.width * scale
-            h = win.height * scale
+        # Draw text
+        self.draw_text(x, y, w, h, win)
 
-            border_color = self.colors.WINDOW_BORDER
-            fill_color = Colors.WINDOW_ALWAYS_ON_TOP if win.always_on_top else self.colors.WINDOW_NORMAL
 
-            # Draw window rectangle
-            self.canvas.create_rectangle(
-                x, y, x + w, y + h,
-                fill=fill_color,
-                outline=border_color,
-                width=2 if not win.always_on_top else 3
-                )
-
-            # Load images
+    # Load images from image folder
+    def draw_images(self, x, y, w, h, win, scale):
             if self.use_images:
                 image_paths = [
                     os.path.join(self.assets_dir, f"{win.search_title.replace(' ', '_').replace(':', '')}.jpg"),
@@ -970,7 +1104,9 @@ class ScreenLayoutFrame(ctk.CTkFrame):
                         except Exception as e:
                             print(f"Error loading image: {e}")
 
-            # Draw text
+
+    # Draw the text over window frames
+    def draw_text(self, x, y, w, h, win):
             info_lines = [
                 win.search_title or win.name,
                 f"Pos:  {win.pos_x}, {win.pos_y}" if self.window_details else "",
@@ -982,12 +1118,9 @@ class ScreenLayoutFrame(ctk.CTkFrame):
             padding_x = 4
             padding_y = 2
 
-            max_lines = int((h - 2 * padding_y) // self.line_height)
-            lines_to_draw = info_lines[:max_lines]
-
-            for i, line in enumerate(lines_to_draw):
+            for i, line in enumerate(info_lines):
                 if line != "":
-                    font_to_use = Fonts.TEXT_BOLD if i == 0 else Fonts.TEXT_NORMAL
+                    font_to_use = Fonts.TEXT_TITLE if i == 0 else Fonts.TEXT_NORMAL
                     text_x = x + padding_x
                     text_y = y + padding_y + (i * self.line_height)
                     
@@ -1002,15 +1135,17 @@ class ScreenLayoutFrame(ctk.CTkFrame):
 
             # Missing text
             if not win.exists:
-                missing_text = 'Window missing'
-                missing_x = x + (w / 2) - (len(missing_text) * 7 / 2)
+                missing_text = 'Missing'
+                missing_x = x + (w / 2)
                 missing_y = y + 2
 
                 self.draw_text_with_bg(self.canvas,
                     missing_x,
                     missing_y,
                     missing_text,
-                    Fonts.TEXT_BOLD,
+                    Fonts.TEXT_SMALL,
                     self.colors.TEXT_ERROR if not win.always_on_top else Colors.TEXT_ERROR,
                     self.colors.WINDOW_NORMAL if not win.always_on_top else Colors.WINDOW_ALWAYS_ON_TOP,
+                    anchor="center"
                 )
+

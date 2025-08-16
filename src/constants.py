@@ -78,16 +78,16 @@ class LayoutDefaults:
 
 class UIConstants:
     # Window dimensions
-    WINDOW_WIDTH = 960
-    WINDOW_HEIGHT = 550
-    WINDOW_MIN_WIDTH = 960
-    WINDOW_MIN_HEIGHT = 550
+    WINDOW_WIDTH = 1100
+    WINDOW_HEIGHT = 600
+    WINDOW_MIN_WIDTH = 680
+    WINDOW_MIN_HEIGHT = 480
 
     SETTINGS_WIDTH = 900
     SETTINGS_HEIGHT = 500
 
-    COMPACT_WIDTH = 180
-    COMPACT_HEIGHT = 250
+    COMPACT_WIDTH = 160
+    COMPACT_HEIGHT = 510
 
     BUTTON_WIDTH = 120
     BUTTON_HEIGHT = 40
@@ -120,6 +120,7 @@ class Colors:
     WINDOW_NORMAL = "#404040"
     WINDOW_ALWAYS_ON_TOP = "#306030"
     WINDOW_BORDER = "#050505"
+    WINDOW_FRAME = "#101010"
     DIM_BORDER = "#555555"
 
     # Window styles
@@ -171,3 +172,5 @@ class Fonts:
     TEXT_TITLE = ("Consolas", 11, "bold")
     TEXT_NORMAL = ("Consolas", 10, "normal")
     TEXT_BOLD = ("Consolas", 10, "bold")
+    TEXT_SMALL = ("Consolas", 8, "normal")
+    

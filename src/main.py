@@ -20,6 +20,7 @@ def load_GUI():
     # Start main GUI
     app.mainloop()
 
+
 if __name__ == "__main__":
     # Get application base path
     # Needed to make the application work the same when running as script as well as .exe
@@ -42,3 +43,4 @@ if __name__ == "__main__":
     compact, use_images, snap_side , details = config_manager.load_settings()
 
     load_GUI()
+

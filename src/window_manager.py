@@ -27,10 +27,8 @@ class WindowManager:
                     return False
                 
                 self.add_managed_window(hwnd)
-                window = gw.Window(hwnd)
-                if window.isMinimized:
-                    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-                    win32gui.SetForegroundWindow(hwnd)
+
+                self.bring_to_front(hwnd)
 
                 if isinstance(config, dict):
                     # Get configuration values
@@ -39,8 +37,8 @@ class WindowManager:
                         position = eval(config['position']) if isinstance(config['position'], str) else config['position']
                     if 'size' in config and config['size']:
                         size = eval(config['size']) if isinstance(config['size'], str) else config['size']
-                    if 'always_on_top' in config:
-                        always_on_top = config['always_on_top']
+
+                    always_on_top = config.get('always_on_top', False)
 
                     # Apply settings
                     apply_funcs = {
@@ -80,10 +78,8 @@ class WindowManager:
         if self.is_valid_window(hwnd):
             try:
                 flag = win32con.HWND_TOPMOST if enable else win32con.HWND_NOTOPMOST
-                win32gui.SetWindowPos(hwnd, flag, 0, 0, 0, 0, 
-                                    win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | 
-                                    win32con.SWP_NOOWNERZORDER)
-                
+                win32gui.SetWindowPos(hwnd, flag, 0, 0, 0, 0, win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOOWNERZORDER)
+
                 if enable and hwnd not in self.topmost_windows:
                     self.topmost_windows.add(hwnd)
                 elif not enable and hwnd in self.topmost_windows:
@@ -91,6 +87,8 @@ class WindowManager:
                     
             except Exception as e:
                 print(f"Error setting always on top for hwnd: {hwnd}, enable: {enable}, error: {e}")
+        else:
+            pass
 
     def set_window_position(self, hwnd, x, y):
         if self.is_valid_window(hwnd):
@@ -176,7 +174,7 @@ class WindowManager:
             self.set_always_on_top(hwnd, enable=False)
             self.restore_window_frame(hwnd)
             self.remove_managed_window(hwnd)
-
+        
 
 # Other functions
 
@@ -271,7 +269,7 @@ class WindowManager:
                 is_topmost = (win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE) & win32con.WS_EX_TOPMOST) != 0
                 flag = win32con.HWND_TOPMOST if not is_topmost else win32con.HWND_NOTOPMOST
                 win32gui.SetWindowPos(hwnd, flag, 0, 0, 0, 0, win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOOWNERZORDER)
-            
+
         except Exception as e:
             print(f"Error toggling always-on-top: {e}")
             return False
@@ -298,3 +296,25 @@ class WindowManager:
         except Exception:
             return False
 
+    def bring_to_front(self, hwnd):
+        try:
+            if not win32gui.IsWindow(hwnd):
+                return
+            # Restore if minimized
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            # Push to the very top (above everything else)
+            win32gui.SetWindowPos(
+                hwnd,
+                win32con.HWND_TOPMOST,
+                0, 0, 0, 0,
+                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE
+            )
+            # Immediately remove always-on-top so normal stacking returns
+            win32gui.SetWindowPos(
+                hwnd,
+                win32con.HWND_NOTOPMOST,
+                0, 0, 0, 0,
+                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE
+            )
+        except Exception as e:
+            print(f"Failed to bring window to front: {e}")
