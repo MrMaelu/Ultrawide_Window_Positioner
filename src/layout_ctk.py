@@ -1,5 +1,4 @@
 import os
-import time
 from ctypes import windll
 import webbrowser
 import pywinstyles
@@ -167,7 +166,7 @@ class CtkGuiManager(ctk.CTk):
         #self.buttons.append(self.theme_switch) # Adding the switch to the buttons list may cause some issues. It will be outside the visible window in compact mode.
 
         # Info label
-        self.info_label = ctk.CTkLabel(self.status_frame, text=f"")
+        self.info_label = ctk.CTkLabel(self.status_frame, text="")
 
         # Auto re-apply switch
         self.auto_apply_switch = ctk.CTkSwitch(self.images_frame, text="Auto re-apply", variable=self.reapply, command=self.callbacks.get("auto_reapply"), progress_color=self.colors.TEXT_ALWAYS_ON_TOP, height=UIConstants.BUTTON_HEIGHT/2)
@@ -231,7 +230,8 @@ class CtkGuiManager(ctk.CTk):
     def create_image_buttons(self):
         # Image download button
         self.image_download_button = self.create_button(self.buttons_2_container, text="Download images", command=self.callbacks.get("download_images"))
-        if self.client_info_missing: self.image_download_button.configure(text="Client info missing", state=ctk.DISABLED)
+        if self.client_info_missing:
+            self.image_download_button.configure(text="Client info missing", state=ctk.DISABLED)
         self.image_download_button.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=5, pady=5)
 
         # Image folder button
@@ -416,7 +416,7 @@ class CtkGuiManager(ctk.CTk):
                 taskbar_height = UIConstants.TASKBAR_HEIGHT
                 usable_height = screen_height - taskbar_height
                 
-                if not len(sorted_windows) in self.auto_align_layouts:
+                if len(sorted_windows) not in self.auto_align_layouts:
                     in_defaults = '' if len(sorted_windows) not in LayoutDefaults.DEFAULT_LAYOUTS else ' Try to reset to defaults.'
                     self.ratio_label.configure(text=f"No auto-alignment available for {len(sorted_windows)} windows. {in_defaults}")
                     return
@@ -503,8 +503,10 @@ class CtkGuiManager(ctk.CTk):
 
                     # Heights
                     left_height = right_height = screen_height if side in ('R', 'L') else usable_height
-                    if side == 'CL': right_height = screen_height
-                    if side == 'CR': left_height = screen_height
+                    if side == 'CL':
+                        right_height = screen_height
+                    if side == 'CR':
+                        left_height = screen_height
 
                     # Positions
                     right_x = left_x + left_width if side == 'CR' else left_width
@@ -722,7 +724,7 @@ class CtkGuiManager(ctk.CTk):
 
         elif not self.config_active:
             self.apply_config_button.configure(text="Apply config", fg_color=self.colors.BUTTON_NORMAL)
-            self.info_label.configure(text=f"")
+            self.info_label.configure(text="")
             self.aot_button.configure(state=ctk.DISABLED)
             self.reapply.set(0)
 
@@ -916,7 +918,6 @@ class ScreenLayoutFrame(ctk.CTkFrame):
         self.height = height
 
         frame_width = 15
-        edge_gap = 10
         padding = (frame_width / 2)
 
         drawable_height = height - frame_width * 2

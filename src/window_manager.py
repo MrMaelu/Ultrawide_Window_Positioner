@@ -279,7 +279,7 @@ class WindowManager:
             def enum_window_callback(hwnd, windows):
                 if win32gui.IsWindowVisible(hwnd):
                     title = win32gui.GetWindowText(hwnd)
-                    if title and not title.lower() in self.ignored_windows:
+                    if title and title.lower() not in self.ignored_windows:
                         windows.append(title)
                 return True
 

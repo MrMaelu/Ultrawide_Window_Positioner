@@ -1,6 +1,5 @@
 import os
 import sys
-import time
 import threading
 from ctypes import windll, WinError, get_last_error
 
@@ -207,12 +206,12 @@ class CallbackManager:
         if settings_size != metrics['size']:
             differences.append(f"Size mismatch: Settings={settings_size}, Metrics={metrics['size']}")
         
-        settings_aot = settings['always_on_top'] == True
+        settings_aot = settings['always_on_top']
         metrics_aot = (metrics['exstyle'] & 0x00000008) != 0
         if settings_aot != metrics_aot:
             differences.append(f"Always on top mismatch: Settings={settings_aot}, Metrics={metrics_aot}")
         
-        settings_titlebar = settings['has_titlebar'] == True
+        settings_titlebar = settings['has_titlebar']
         metrics_titlebar = (metrics['style'] & 0x00C00000) != 0
         if settings_titlebar != metrics_titlebar:
             differences.append(f"Titlebar mismatch: Settings={settings_titlebar}, Metrics={metrics_titlebar}")

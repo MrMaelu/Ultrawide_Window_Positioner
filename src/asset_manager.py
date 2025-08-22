@@ -1,6 +1,7 @@
 import os
 import mss
-import win32con, win32gui, win32api, win32process
+import win32con
+import win32gui
 from PIL import Image
 import threading
 import importlib
@@ -40,10 +41,11 @@ class AssetManager():
 
     def threaded_startup(self):
         self.assets_dir = os.path.join(self.base_path, "assets")
-        if not os.path.exists(self.assets_dir): os.makedirs(self.assets_dir)
+        if not os.path.exists(self.assets_dir):
+            os.makedirs(self.assets_dir)
 
         try:
-            import requests
+            pass
         except Exception:
             print("Failed to import requests. Downloads disabled.")
             self.client_info_missing = True
@@ -95,7 +97,7 @@ class AssetManager():
                 'Client-ID': self.CLIENT_ID,
                 'Authorization': f'Bearer {self.access_token}'
             }
-        except Exception as e:
+        except Exception:
             self.access_token = None
 
     def search(self, query, save_dir='screenshots'):
@@ -144,7 +146,7 @@ class AssetManager():
 
     def search_rawg(self, query, save_dir):
         try:
-            url = f"https://api.rawg.io/api/games"
+            url = "https://api.rawg.io/api/games"
             params = {
                 "key": self.RAWG_API_KEY,
                 "search": query,

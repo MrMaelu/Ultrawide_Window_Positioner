@@ -13,7 +13,8 @@ def load_GUI():
     callback_manager = app.callback_manager
 
     # Set default config
-    if compact: callback_manager.toggle_compact_mode(startup=True)
+    if compact:
+        callback_manager.toggle_compact_mode(startup=True)
     default_config = config_manager.detect_default_config()
     callback_manager.update_config_list(default_config)
 
@@ -36,7 +37,7 @@ if __name__ == "__main__":
     # Check for admin rights
     try:
         is_admin = windll.shell32.IsUserAnAdmin()
-    except:
+    except Exception:
         is_admin = False
     
     # Load config
