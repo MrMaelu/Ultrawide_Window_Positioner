@@ -19,6 +19,8 @@ class CtkGuiManager(ctk.CTk):
     def __init__(self, compact=0, is_admin=False, use_images=0, snap=0, details=0, config_manager=None, asset_manager=None):
         super().__init__()
 
+        self.ui_code = 'ctk'
+
         # Set application title
         self.application_name = "Ultrawide Window Positioner"
         self.title(self.application_name)
@@ -186,6 +188,10 @@ class CtkGuiManager(ctk.CTk):
         #if self.asset_manager.client_info_missing:
         #    self.info_label.configure(text=f'"client_secrets.py" not found. Please create it with your IGDB/RAWG credentials. Downloading disabled.')
 
+
+
+# *** Widget creation functions *** #
+
 # Create main buttons
     def setup_buttons(self):
         self.apply_config_button = self.create_button(self.buttons_1_container, text="Apply config", command=self.callbacks.get("apply_config"))
@@ -225,7 +231,6 @@ class CtkGuiManager(ctk.CTk):
         # AOT status label
         self.aot_label.pack(side=ctk.LEFT, fill=ctk.X, padx=5, pady=5)
         self.aot_button.pack(before=self.aot_label, side=ctk.LEFT, fill=ctk.X, padx=5, pady=5)
-
 
 # Create buttons for downloading and managing screen layout screenshot downloading
     def create_image_buttons(self):
@@ -297,7 +302,7 @@ class CtkGuiManager(ctk.CTk):
             self.managed_text.pack(side=ctk.TOP, fill=ctk.BOTH, expand=True)
 
 # Draw or redraw the layout preview
-    def set_layout_frame(self, windows): 
+    def set_layout_frame(self, windows):
         if self.layout_frame:
             self.layout_frame.destroy()
 
@@ -686,8 +691,6 @@ class CtkGuiManager(ctk.CTk):
         # Redraw the layout preview
         self.callbacks["config_selected"](self.combo_box)
 
-
-
 # Will apply the correct style to the titlebar
     def apply_titlebar_style(self):
         try:
@@ -710,7 +713,7 @@ class CtkGuiManager(ctk.CTk):
 
 # Set the correct style and status for the Apply / Reset button
     def format_apply_reset_button(self, selected_config_shortname=None, disable=None):
-        if disable is not None:
+        if disable:
             state = ctk.DISABLED if disable == 1 else ctk.NORMAL
             self.apply_config_button.configure(state=state)
             return
@@ -800,15 +803,18 @@ class CtkGuiManager(ctk.CTk):
         values = self.combo_box.cget("values")
         if not values:
             return
+
         try:
             current_value = self.combo_box.get()
             current_index = values.index(current_value)
         except ValueError:
             current_index = 0
-        if event.delta > 0:
-            new_index = max(0, current_index - 1)
-        else:
-            new_index = min(len(values) - 1, current_index + 1)
+
+        if event.delta > 0:  # scroll up
+            new_index = (current_index - 1) % len(values)
+        else:  # scroll down
+            new_index = (current_index + 1) % len(values)
+
         if new_index != current_index:
             self.combo_box.set(values[new_index])
             if "config_selected" in self.callbacks:
@@ -863,7 +869,7 @@ class CtkGuiManager(ctk.CTk):
 
 
 class ScreenLayoutFrame(ctk.CTkFrame):
-    def __init__(self, parent, screen_width, screen_height, windows: List[WindowInfo], assets_dir, use_images=False, style_dark=True, window_details=True):
+    def __init__(self, parent, screen_width, screen_height, windows: List[WindowInfo], assets_dir, style_dark, use_images=False, window_details=True):
         super().__init__(parent)
         self.windows = windows
         self.style_dark = style_dark
@@ -941,7 +947,6 @@ class ScreenLayoutFrame(ctk.CTkFrame):
         frame_right = padding + x_offset + scale * self.screen_width
         frame_bottom = padding + y_offset + scale * self.screen_height
 
-
         # Frame background
         self.canvas.create_rectangle(
             frame_left, frame_top, frame_right, frame_bottom,
@@ -1003,7 +1008,6 @@ class ScreenLayoutFrame(ctk.CTkFrame):
 
         # Place all text above other objects
         self.canvas.tag_raise("overlay_text")
-
 
     # Create a text element with background
     def draw_text_with_bg(self, canvas, x, y, text, font, text_color, bg_color, anchor="nw", justify="left"):
