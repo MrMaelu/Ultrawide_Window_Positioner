@@ -160,7 +160,7 @@ class CtkGuiManager(ctk.CTk):
         self.admin_label.pack(side=ctk.RIGHT, fill=ctk.X, padx=5)
 
         # Config selection dropdown
-        self.combo_box = ctk.CTkComboBox(self.combo_frame, width=300, command=lambda _: self.callbacks["config_selected"](self.combo_box), state="readonly")
+        self.combo_box = ctk.CTkComboBox(self.combo_frame, width=300, command=lambda _: self.callbacks["config_selected"](), state="readonly")
         self.combo_box.pack(side=ctk.LEFT, padx=5, pady=5)
         self.combo_box.bind("<MouseWheel>", self.on_mousewheel)
 
@@ -689,7 +689,7 @@ class CtkGuiManager(ctk.CTk):
         self.apply_titlebar_style()
 
         # Redraw the layout preview
-        self.callbacks["config_selected"](self.combo_box)
+        self.callbacks["config_selected"]()
 
 # Will apply the correct style to the titlebar
     def apply_titlebar_style(self):
@@ -818,7 +818,7 @@ class CtkGuiManager(ctk.CTk):
         if new_index != current_index:
             self.combo_box.set(values[new_index])
             if "config_selected" in self.callbacks:
-                self.callbacks["config_selected"](self.combo_box)
+                self.callbacks["config_selected"]()
 
 # Toggle between full view and compact mode
     def toggle_compact(self, startup=False):

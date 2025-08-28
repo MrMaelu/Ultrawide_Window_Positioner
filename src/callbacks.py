@@ -429,7 +429,7 @@ class CallbackManager:
     # Toggles window details text overlay
     def _window_details(self)->None:
         self.save_settings()
-        self.on_config_select(self.app.combo_box)
+        self.on_config_select()
 
 
 
