@@ -55,6 +55,7 @@ class CallbackManager:
             "snap": self.save_settings,
             "auto_reapply": self.start_auto_reapply,
             "details": self._window_details,
+            "detect_config": self.detect_config,
         }
 
 # ************************************************* #
@@ -184,6 +185,12 @@ class CallbackManager:
             self.update_window_layout(self.config, missing_windows)
         else:
             self.update_managed_windows_list(self.config)
+
+
+    def detect_config(self)->None:
+        """Detect the best matching config based on available windows."""
+        default_config = self.config_manager.detect_default_config()
+        self.update_config_list(default_config)
 
 
     def toggle_compact_mode(self=None, *, startup:bool=False)->None:

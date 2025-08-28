@@ -1,8 +1,10 @@
+"""GUI layout for PySide."""
+
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
 from fractions import Fraction
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, QRect, Qt, QTimer
 from PySide6.QtGui import (
@@ -39,18 +41,678 @@ from constants import Colors, Fonts, LayoutDefaults, Messages, UIConstants
 # Local imports
 from utils import WindowInfo, clean_window_title, convert_hex_to_rgb, invert_hex_color
 
-# ------------------------------
-# Helper: safe callback getter
-# ------------------------------
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
+# Safe callback getter
 def _cb(d: dict[str, Callable]|None, key:str, default:Callable|None = None)->Callable:
     if d and key in d and callable(d[key]):
         return d[key]
     return (default or (lambda *a, **k: None))
 
-# --------------------------------------
+
+# Main window
+
+class PysideGuiManager(QMainWindow):
+    def __init__(self, compact: int = 0, is_admin: bool = False, use_images: int = 0, snap: int = 0, details: int = 0, config_manager=None, asset_manager=None):
+        super().__init__()
+
+        self.ui_code = "pyside"
+
+        # App title
+        self.application_name = "Ultrawide Window Positioner"
+        self.setWindowTitle(self.application_name)
+
+        # Managers
+        self.asset_manager = asset_manager
+        self.config_manager = config_manager
+        self.callback_manager = CallbackManager(self, self.config_manager, self.asset_manager)
+        self.callbacks = self.callback_manager.callbacks
+        self.assets_dir = self.callback_manager.assets_dir
+
+        # State
+        self.compact_mode = compact
+        self.style_dark = True
+        self.ctk_theme_bg = None  # placeholder for parity
+        self.config_active = False
+        self.applied_config = None
+        self.colors = Colors()
+
+        self.snap = snap
+        self.reapply = False
+        self.details = bool(details)
+        self.use_images = bool(use_images)
+
+        # Screen area size (SystemMetrics 78/79 in Win32; Qt alternative)
+        # AvailableGeometry is closer to work-area; use that to mimic taskbar consideration elsewhere
+        screen = QApplication.primaryScreen()
+        geom = screen.geometry()
+        self.res_x = geom.width()
+        self.res_y = geom.height()
+
+        width, height, min_width, min_height = self.get_geometry_and_minsize()
+
+        # Startup position
+        if self.snap == 0:
+            pos_x = (self.res_x // 2) - ((width) // 2)
+        elif self.snap == 1:
+            pos_x = -7
+        elif self.snap == 2:
+            pos_x = self.res_x - (width) - 7
+        else:
+            pos_x = 100
+
+        pos_y = (self.res_y // 2) - ((height) // 2)
+
+        self.is_admin = is_admin
+        self.client_info_missing = getattr(self.asset_manager, "client_info_missing", False)
+
+
+        # Data
+        self.canvas: ScreenLayoutWidget | None = None
+        self.managed_label: QLabel | None = None
+        self.managed_text: QTextEdit | None = None
+        self.ratio_label: QLabel | None = None
+        self.layout_frame_create_config: ScreenLayoutWidget | None = None
+        self.layout_number = 0
+
+
+        # Load auto-align layouts
+        self.auto_align_layouts = self.config_manager.load_or_create_layouts(self.config_manager.layout_config_file)
+
+
+        # Main UI containers
+        central = QWidget()
+        self.setCentralWidget(central)
+        central.setContentsMargins(0,0,0,0)
+        self.main_layout = QVBoxLayout(central)
+        self.main_layout.setContentsMargins(0,0,0,0)
+        self.main_layout.setSpacing(4)
+
+        self._build_ui()
+        self.toggle_compact(startup=True)
+        self._connect_callbacks()
+        self._apply_theme()  # default dark
+
+        self.setMinimumSize(min_width, min_height)
+        self.setGeometry(pos_x, pos_y, width, height)
+
+
+        # Start monitoring for reapply
+        self.reapply_timer()
+
+
+        # Set event filter for managed windows widget
+        self.managed_widget.installEventFilter(self)
+
+
+    # Catch mouse wheel events on managed windows widget
+    def eventFilter(self, source, event):
+        if source is self.managed_widget and event.type() == QEvent.Wheel:
+            combo = self.combo_box
+            delta = event.angleDelta().y()
+            current = combo.currentIndex()
+
+            if delta > 0:  # scroll up
+                new_index = max(0, current - 1)
+            else:          # scroll down
+                new_index = min(combo.count() - 1, current + 1)
+
+            combo.setCurrentIndex(new_index)
+
+            return True
+        return super().eventFilter(source, event)
+
+
+    def get_geometry_and_minsize(self):
+        compact_height_factor = 0.8
+        width = UIConstants.WINDOW_WIDTH if not self.compact_mode else UIConstants.COMPACT_WIDTH
+        height = UIConstants.WINDOW_HEIGHT if not self.compact_mode else UIConstants.COMPACT_HEIGHT
+        min_width = UIConstants.WINDOW_MIN_WIDTH if not self.compact_mode else UIConstants.COMPACT_WIDTH
+        min_height = UIConstants.WINDOW_MIN_HEIGHT if not self.compact_mode else UIConstants.COMPACT_HEIGHT * compact_height_factor
+
+        return width, height, min_width, min_height
+
+
+    def toggle_elements(self, compact, min_width):
+        hidden_elements = [
+            self.layout_frame,
+            self.admin_button,
+            self.theme_switch,
+            #self.create_config_button,
+            #self.delete_config_button,
+            self.detect_config_button,
+            self.config_folder_button,
+            self.image_folder_button,
+            self.image_download_button,
+            self.screenshot_button,
+            self.details_switch,
+            self.toggle_images_switch,
+            self.aot_label,
+            self.left_radio,
+            self.center_radio,
+            self.right_radio,
+            self.snap_label,
+        ]
+
+        self.managed_widget.setVisible(compact)
+
+        if compact:
+            self.combo_box.setFixedWidth(min_width - 20)
+        else:
+            self.combo_box.setFixedWidth(min_width / 2)
+
+        for widget in hidden_elements:
+            if compact:
+                widget.hide()
+            else:
+                widget.show()
+
+
+        if compact:
+            self.b1.setDirection(QBoxLayout.TopToBottom)  # vertical
+            self.b2.setDirection(QBoxLayout.TopToBottom)  # vertical
+        else:
+            self.b1.setDirection(QBoxLayout.LeftToRight)  # horizontal
+            self.b2.setDirection(QBoxLayout.LeftToRight)  # horizontal
+
+
+    def toggle_compact(self, startup=False):
+        if not startup:
+            self.compact_mode = not self.compact_mode
+
+        width, height, min_width, min_height = self.get_geometry_and_minsize()
+        self.toggle_elements(self.compact_mode, min_width)
+
+        if self.snap == 0:
+            pos_x = (self.res_x // 2) - ((width) // 2)
+        elif self.snap == 1:
+            pos_x = -7
+        elif self.snap == 2:
+            pos_x = self.res_x - (width) - 7
+        else:
+            pos_x = 100
+        pos_y = (self.res_y // 2) - ((height) // 2)
+
+        self.setMinimumSize(min_width, min_height)
+        self.setGeometry(pos_x, pos_y, width, height)
+
+
+    # Update the text for the managed windows view (for compact mode)
+    def update_managed_text(self, lines, aot_flags):
+        self.managed_text.setReadOnly(False)
+        self.managed_text.clear()
+
+        for i, line in enumerate(lines):
+            if aot_flags[i]:
+                self.managed_text.setTextColor(self.colors.TEXT_ALWAYS_ON_TOP)
+            else:
+                self.managed_text.setTextColor(self.colors.TEXT_NORMAL)  # define normal color
+            self.managed_text.append(line)
+
+        self.managed_text.setReadOnly(True)
+
+
+
+    # ------------- UI composition -------------
+    def _build_ui(self):
+        width, height, min_width, min_height = self.get_geometry_and_minsize()
+
+        # Header
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(15, 0, 15, 0)
+        header_layout.setSpacing(10)
+
+        self.resolution_label = QLabel(f"{self.res_x} x {self.res_y}", self)
+        header_layout.addWidget(self.resolution_label, alignment=Qt.AlignLeft)
+
+        app_mode = "Admin" if self.is_admin else "User"
+        self.admin_label = QLabel(f"{app_mode} mode", self)
+        self.admin_label.setStyleSheet(
+            f"color: {self.colors.ADMIN_ENABLED if self.is_admin else self.colors.TEXT_NORMAL};",
+        )
+        header_layout.addWidget(self.admin_label, alignment=Qt.AlignRight)
+        self.main_layout.addLayout(header_layout)
+
+        # Combo row
+        combo_layout = QHBoxLayout()
+        combo_layout.setContentsMargins(10, 0, 10, 0)
+        combo_layout.setSpacing(0)
+
+        self.combo_box = QComboBox(self)
+        self.combo_box.setFixedWidth(min_width - 20 if self.compact_mode else min_width / 2)
+        self.combo_box.currentIndexChanged.connect(lambda _: _cb(self.callbacks, "config_selected")())
+        combo_layout.addWidget(self.combo_box, alignment=Qt.AlignLeft)
+
+        self.admin_button = QPushButton("Restart as Admin" if not self.is_admin else "Admin mode", self)
+        self.admin_button.setEnabled(not self.is_admin)
+        self.admin_button.clicked.connect(_cb(self.callbacks, "restart_as_admin"))
+
+        self.theme_switch = QCheckBox("light / dark", self)
+        self.theme_switch.setChecked(False)
+        self.theme_switch.stateChanged.connect(self._on_theme_toggle)
+
+        right_layout = QHBoxLayout()
+        right_layout.addWidget(self.theme_switch, alignment=Qt.AlignRight)
+        right_layout.addWidget(self.admin_button, alignment=Qt.AlignRight)
+
+        combo_layout.addLayout(right_layout)
+        self.main_layout.addLayout(combo_layout)
+
+        # Managed area
+        self.managed_widget = QWidget(self)
+        self.managed_widget.setVisible(self.compact_mode)
+        mf_layout = QVBoxLayout(self.managed_widget)
+        mf_layout.setContentsMargins(10, 0, 10, 0)
+
+        self.managed_label = QLabel("Managed windows:", self)
+        mf_layout.addWidget(self.managed_label, alignment=Qt.AlignLeft)
+
+        self.managed_text = QTextEdit(self)
+        self.managed_text.setFixedHeight(80)
+        mf_layout.addWidget(self.managed_text)
+        self.main_layout.addWidget(self.managed_widget)
+
+        # Layout container (preview)
+        lc_layout = QVBoxLayout()
+        lc_layout.setContentsMargins(10, 5, 10, 0)
+
+        self.layout_frame = ScreenLayoutWidget(
+            self,
+            self.res_x, self.res_y, [],
+            assets_dir=getattr(self, "assets_dir", None),
+            window_details=self.details,
+        )
+        lc_layout.addWidget(self.layout_frame, 1)
+        self.main_layout.addLayout(lc_layout, 1)
+
+        # Status row
+        status_layout = QHBoxLayout()
+        status_layout.setContentsMargins(20, 0, 20, 0)
+
+        self.info_label = QLabel("", self)
+        status_layout.addWidget(self.info_label)
+        self.main_layout.addLayout(status_layout)
+
+        # Buttons area
+        btn_layout = QVBoxLayout()
+        btn_layout.setContentsMargins(10, 5, 10, 5)
+
+        # Row 1
+        self.b1 = QHBoxLayout()
+        self.apply_config_button = QPushButton("Apply config", self)
+        self.reset_config_button = QPushButton("Reset config", self)
+        self.create_config_button = QPushButton("Create config", self)
+        self.delete_config_button = QPushButton("Delete config", self)
+
+        self.b1.addWidget(self.apply_config_button)
+        self.b1.addWidget(self.reset_config_button)
+        self.b1.addWidget(self.create_config_button)
+        self.b1.addWidget(self.delete_config_button)
+
+        btn_layout.addLayout(self.b1)
+
+        # Row 2
+        self.b2 = QHBoxLayout()
+        self.config_folder_button = QPushButton("Open config folder", self)
+        self.screenshot_button = QPushButton("Take screenshots", self)
+        self.image_download_button = (
+            QPushButton("Download images"
+                        if not self.client_info_missing else "Client info missing",
+                        self)
+                        )
+        self.image_download_button.setEnabled(not self.client_info_missing)
+        self.image_folder_button = QPushButton("Open image folder", self)
+
+        self.b2.addWidget(self.config_folder_button)
+        self.b2.addWidget(self.screenshot_button)
+        self.b2.addWidget(self.image_download_button)
+        self.b2.addWidget(self.image_folder_button)
+
+        btn_layout.addLayout(self.b2)
+
+        # AOT row
+        aot_l = QHBoxLayout()
+
+        self.aot_button = QPushButton("Toggle AOT", self)
+        self.aot_button.setEnabled(False)
+        self.aot_label = QLabel(Messages.ALWAYS_ON_TOP_DISABLED, self)
+        self.aot_label.setContentsMargins(10,0,10,0)
+
+        self.detect_config_button = QPushButton("Detect config", self)
+
+        self.toggle_compact_button = QPushButton("Toggle compact", self)
+
+        aot_l.addWidget(self.aot_button)
+        aot_l.addWidget(self.aot_label)
+        aot_l.addWidget(self.detect_config_button)
+        aot_l.addWidget(self.toggle_compact_button)
+
+        btn_layout.addLayout(aot_l)
+
+        # Images / switches row
+        img_l = QHBoxLayout()
+        img_l.setContentsMargins(0, 10, 0, 10)
+        img_l.setSpacing(20)
+        self.auto_apply_switch = QCheckBox("Auto re-apply", self)
+        self.auto_apply_switch.stateChanged.connect(self._on_reapply_toggle)
+        img_l.addWidget(self.auto_apply_switch)
+
+        self.details_switch = QCheckBox("Show window details", self)
+        self.details_switch.setChecked(self.details)
+        self.details_switch.stateChanged.connect(self._on_details_toggle)
+        img_l.addWidget(self.details_switch)
+
+        self.toggle_images_switch = QCheckBox("Images", self)
+        self.toggle_images_switch.setChecked(self.use_images)
+        self.toggle_images_switch.stateChanged.connect(self._on_images_toggle)
+        img_l.addWidget(self.toggle_images_switch)
+
+        img_l.addStretch()  # push snap group right
+
+        snap_l = QHBoxLayout()
+        snap_l.setSpacing(10)
+        self.snap_label = QLabel("Application open position:", self)
+        snap_l.addWidget(self.snap_label)
+
+        radio_width = 60
+        self.left_radio = QRadioButton("Left", self)
+        self.left_radio.setFixedWidth(radio_width)
+
+        self.center_radio = QRadioButton("Center", self)
+        self.center_radio.setFixedWidth(radio_width)
+
+        self.right_radio = QRadioButton("Right", self)
+        self.right_radio.setFixedWidth(radio_width)
+
+        self.snap_group = QButtonGroup(self)
+        self.snap_group.addButton(self.left_radio, 1)
+        self.snap_group.addButton(self.center_radio, 0)
+        self.snap_group.addButton(self.right_radio, 2)
+
+        if self.snap == 1:
+            self.left_radio.setChecked(True)
+        elif self.snap == 2:
+            self.right_radio.setChecked(True)
+        else:
+            self.center_radio.setChecked(True)
+
+        snap_l.addWidget(self.left_radio)
+        snap_l.addWidget(self.center_radio)
+        snap_l.addWidget(self.right_radio)
+
+        img_l.addLayout(snap_l)
+
+        btn_layout.addLayout(img_l)
+
+        self.main_layout.addLayout(btn_layout)
+
+
+
+        # Default selection (match startup)
+        if self.snap == 1:
+            self.left_radio.setChecked(True)
+        elif self.snap == 2:
+            self.right_radio.setChecked(True)
+        else:
+            self.center_radio.setChecked(True)
+
+
+
+    def _connect_callbacks(self):
+        self.apply_config_button.clicked.connect(_cb(self.callbacks, "apply_config"))
+        self.create_config_button.clicked.connect(_cb(self.callbacks, "create_config"))
+        self.delete_config_button.clicked.connect(_cb(self.callbacks, "delete_config"))
+        self.config_folder_button.clicked.connect(_cb(self.callbacks, "open_config_folder"))
+        self.reset_config_button.clicked.connect(_cb(self.callbacks, "apply_config"))
+        self.screenshot_button.clicked.connect(_cb(self.callbacks, "screenshot"))
+        self.image_download_button.clicked.connect(_cb(self.callbacks, "download_images"))
+        self.image_folder_button.clicked.connect(_cb(self.callbacks, "image_folder"))
+        self.snap_group.buttonToggled.connect(self._on_snap_toggle)
+        self.toggle_compact_button.clicked.connect(_cb(self.callbacks, "toggle_compact"))
+        self.detect_config_button.clicked.connect(_cb(self.callbacks, "detect_config"))
+
+
+
+    # ------------- Theme & toggles -------------
+
+    def _apply_theme(self):
+        self.setStyleSheet(f"""
+            QWidget {{ background: {self.colors.BACKGROUND}; color: {self.colors.TEXT_NORMAL}; padding: 0px; border: 0px solid {self.colors.BORDER_COLOR};}}
+            QFrame {{ background: {self.colors.BACKGROUND}; padding: 0px; border: 0px solid {self.colors.BORDER_COLOR};}}
+            QPushButton {{
+                background: {self.colors.BUTTON_NORMAL};
+                border-radius: 10px;
+                border: 2px solid {self.colors.BORDER_COLOR};
+                padding: 5px;
+                height: 40px;
+            }}
+            QPushButton:hover {{
+                background: {self.colors.BUTTON_HOVER};
+            }}
+            QPushButton:disabled {{
+                background: {self.colors.BUTTON_DISABLED};
+                color: #888;
+            }}
+            QLineEdit, QTextEdit, QComboBox {{
+                background: {self.colors.BUTTON_NORMAL};
+                border-radius: 0px;
+                border: 2px solid {self.colors.BORDER_COLOR};
+                padding: 5px;
+            }}
+            QCheckBox::indicator {{
+                width: 18px;
+                height: 18px;
+                border-radius: 5px;
+                border: 1px solid {self.colors.BORDER_COLOR};
+                background: {self.colors.BUTTON_NORMAL};
+                color: palette(text);
+                font-weight: bold;
+                font-size: 12px;
+                text-align: center;
+            }}
+            QCheckBox::indicator:checked {{
+                background: {self.colors.BUTTON_ACTIVE};
+                color: palette(highlighted-text);
+                image: url(src/checkmark.svg);
+            }}
+            QRadioButton::indicator:checked {{
+                border: 1px solid {self.colors.BORDER_COLOR};
+                background: {self.colors.BUTTON_ACTIVE};
+                border-radius: 10px;
+                width: 18px;
+                height: 18px;
+            }}
+            QRadioButton::indicator:unchecked {{
+                border: 1px solid {self.colors.BORDER_COLOR};
+                background: {self.colors.BUTTON_NORMAL};
+                border-radius: 10px;
+                width: 18px;
+                height: 18px;
+            }}
+        """)
+        self.reset_config_button.setStyleSheet(f"""
+            QPushButton {{
+                background: {self.colors.BUTTON_ACTIVE};
+                border: 1px solid {self.colors.BORDER_COLOR};
+                padding: 5px;
+            }}
+            QPushButton:hover {{
+                background: {self.colors.BUTTON_ACTIVE_HOVER};
+            }}
+            QPushButton:disabled {{
+                background: {self.colors.BUTTON_DISABLED};
+                color: #888;
+            }}
+        """)
+        self.aot_button.setStyleSheet("""
+            QPushButton {
+                height: 20px;
+            }
+            """)
+        self.detect_config_button.setStyleSheet("""
+            QPushButton {
+                height: 20px;
+            }
+            """)
+        self.toggle_compact_button.setStyleSheet("""
+            QPushButton {
+                height: 20px;
+            }
+            """)
+        # Re-apply dynamic states after theme reset
+        self.format_apply_reset_button()
+        self.format_admin_button(self.is_admin)
+
+
+    def format_apply_reset_button(self, selected_config_shortname=None, disable=None):
+        if disable:
+            self.apply_config_button.setDisabled(True)
+            self.reset_config_button.setDisabled(True)
+            return
+
+        if self.config_active:
+            self.apply_config_button.setDisabled(True)
+            self.reset_config_button.setEnabled(True)
+            self.info_label.setText(
+                f"Active: {selected_config_shortname if selected_config_shortname else self.applied_config}",
+            )
+            self.aot_button.setEnabled(True)
+        else:
+            self.reset_config_button.setDisabled(True)
+            self.apply_config_button.setEnabled(True)
+            self.info_label.setText("")
+            self.aot_button.setEnabled(False)
+            self.reapply = False
+
+
+    def format_admin_button(self, admin_enabled: bool):
+        if admin_enabled:
+            # Admin mode active → button looks active but disabled
+            self.admin_button.setStyleSheet(f"""
+                QPushButton {{
+                    background: {self.colors.BUTTON_ACTIVE};
+                    border: 2px solid {self.colors.BORDER_COLOR};
+                    padding: 5px;
+                    color: {self.colors.TEXT_NORMAL};
+                    height: 20px;
+                }}
+                QPushButton:hover {{
+                    background: {self.colors.BUTTON_ACTIVE_HOVER};
+                }}
+                QPushButton:disabled {{
+                    background: {self.colors.BUTTON_ACTIVE};
+                    color: {self.colors.TEXT_NORMAL};
+                }}
+            """)
+            self.admin_button.setEnabled(False)
+            self.admin_button.setText("Admin enabled")
+        else:
+            # Admin mode inactive → normal style, enabled
+            self.admin_button.setStyleSheet(f"""
+                QPushButton {{
+                    background: {self.colors.BUTTON_NORMAL};
+                    border: 1px solid {self.colors.BORDER_COLOR};
+                    padding: 5px;
+                    color: {self.colors.TEXT_NORMAL};
+                    height: 20px;
+                }}
+                QPushButton:hover {{
+                    background: {self.colors.BUTTON_HOVER};
+                }}
+                QPushButton:disabled {{
+                    background: {self.colors.BUTTON_DISABLED};
+                    color: #888;
+                }}
+            """)
+            self.admin_button.setEnabled(True)
+            self.admin_button.setText("Enable admin")
+
+
+    def invert_colors(self):
+        for attr in dir(self.colors):
+            if attr.isupper():
+                value = getattr(self.colors, attr)
+                if isinstance(value, str):
+                    setattr(self.colors, attr, invert_hex_color(value))
+
+
+    def _on_theme_toggle(self, state: int):
+        # True -> light; False -> dark
+        self.style_dark = not bool(state)
+        self.invert_colors()
+        self._apply_theme()
+
+
+    def _on_reapply_toggle(self, state: int):
+        self.reapply = self.auto_apply_switch.isChecked()
+
+
+    def _on_details_toggle(self, _state: int):
+        self.details = self.details_switch.isChecked()
+        self.callback_manager.save_settings()
+        if self.layout_frame:
+            self.layout_frame.window_details = self.details
+            self.layout_frame.update()
+
+
+    def _on_images_toggle(self, _state: int):
+        self.use_images = self.toggle_images_switch.isChecked()
+        self.callback_manager.save_settings()
+        if self.layout_frame:
+            self.layout_frame.use_images = self.use_images
+            self.layout_frame.update()
+
+
+    def _on_snap_toggle(self, button):
+        if button == self.left_radio:
+            self.snap = 1
+        elif button == self.center_radio:
+            self.snap = 0
+        elif button == self.right_radio:
+            self.snap = 2
+
+        self.callback_manager.save_settings()
+
+
+    # Timer for auto reapply
+    def reapply_timer(self):
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.callback_manager.start_auto_reapply)
+        self.timer.start(500)
+
+
+    # ------------- Managed text (compact mode) -------------
+    def setup_managed_text(self):
+        if not self.managed_frame.isVisible():
+            self.managed_frame.setVisible(True)
+        # Label + Text already created; ensure heights
+        self.managed_text.setFixedHeight(80)
+
+
+    # ------------- Layout frame population -------------
+    def set_layout_frame(self, windows: list[WindowInfo]):
+        self.layout_frame.windows = windows
+        self.layout_frame.update()
+
+
+    # ------------- Create Config workflow -------------
+    def create_config_ui(self, parent, window_titles, save_callback, settings_callback, refresh_callback):
+        dlg = ConfigDialog(
+            parent,
+            window_titles,
+            save_callback,
+            settings_callback,
+            refresh_callback,
+            self.res_x, self.res_y,
+            assets_dir=getattr(self, "assets_dir", None),
+            auto_align_layouts=self.auto_align_layouts,
+            )
+        dlg.exec()
+
+
+
 # Create Config Dialog (two-step wizard)
-# --------------------------------------
 
 class ConfigDialog(QDialog):
     def __init__(self, parent:object, window_titles:list, save_callback:Callable,
@@ -475,639 +1137,8 @@ class WindowSettingsRow(QWidget):
         self.titlebar_cb.setChecked(titlebar)
 
 
-# -------------------------
-# Main window (QMainWindow)
-# -------------------------
 
-class PysideGuiManager(QMainWindow):
-    def __init__(self, compact: int = 0, is_admin: bool = False, use_images: int = 0, snap: int = 0, details: int = 0, config_manager=None, asset_manager=None):
-        super().__init__()
-
-        self.ui_code = "pyside"
-
-        # App title
-        self.application_name = "Ultrawide Window Positioner"
-        self.setWindowTitle(self.application_name)
-
-        # Managers
-        self.asset_manager = asset_manager
-        self.config_manager = config_manager
-        self.callback_manager = CallbackManager(self, self.config_manager, self.asset_manager)
-        self.callbacks = self.callback_manager.callbacks
-        self.assets_dir = self.callback_manager.assets_dir
-
-        # State
-        self.compact_mode = compact
-        self.style_dark = True
-        self.ctk_theme_bg = None  # placeholder for parity
-        self.config_active = False
-        self.applied_config = None
-        self.colors = Colors()
-
-        self.snap = snap
-        self.reapply = False
-        self.details = bool(details)
-        self.use_images = bool(use_images)
-
-        # Screen area size (SystemMetrics 78/79 in Win32; Qt alternative)
-        # AvailableGeometry is closer to work-area; use that to mimic taskbar consideration elsewhere
-        screen = QApplication.primaryScreen()
-        geom = screen.geometry()
-        self.res_x = geom.width()
-        self.res_y = geom.height()
-
-        width, height, min_width, min_height = self.get_geometry_and_minsize()
-
-        # Startup position
-        if self.snap == 0:
-            pos_x = (self.res_x // 2) - ((width) // 2)
-        elif self.snap == 1:
-            pos_x = -7
-        elif self.snap == 2:
-            pos_x = self.res_x - (width) - 7
-        else:
-            pos_x = 100
-
-        pos_y = (self.res_y // 2) - ((height) // 2)
-
-
-
-        self.is_admin = is_admin
-        self.client_info_missing = getattr(self.asset_manager, "client_info_missing", False)
-
-        # Data
-        self.canvas: ScreenLayoutWidget | None = None
-        self.managed_label: QLabel | None = None
-        self.managed_text: QTextEdit | None = None
-        self.ratio_label: QLabel | None = None
-        self.layout_frame_create_config: ScreenLayoutWidget | None = None
-        self.layout_number = 0
-
-
-        # Load auto-align layouts
-        self.auto_align_layouts = self.config_manager.load_or_create_layouts(self.config_manager.layout_config_file)
-
-        # Main UI containers
-        central = QWidget()
-        self.setCentralWidget(central)
-        central.setContentsMargins(0,0,0,0)
-        self.main_layout = QVBoxLayout(central)
-        self.main_layout.setContentsMargins(0,0,0,0)
-        self.main_layout.setSpacing(4)
-
-        self._build_ui()
-        self.toggle_compact(startup=True)
-        self._connect_callbacks()
-        self._apply_theme()  # default dark
-
-        self.setMinimumSize(min_width, min_height)
-        self.setGeometry(pos_x, pos_y, width, height)
-
-        # Start monitoring for reapply
-        self.reapply_timer()
-
-        # Set event filter for managed windows widget
-        self.managed_widget.installEventFilter(self)
-
-
-    # Catch mouse wheel events on managed windows widget
-    def eventFilter(self, source, event):
-        if source is self.managed_widget and event.type() == QEvent.Wheel:
-            combo = self.combo_box
-            delta = event.angleDelta().y()
-            current = combo.currentIndex()
-
-            if delta > 0:  # scroll up
-                new_index = max(0, current - 1)
-            else:          # scroll down
-                new_index = min(combo.count() - 1, current + 1)
-
-            combo.setCurrentIndex(new_index)
-
-            return True
-        return super().eventFilter(source, event)
-
-
-    def get_geometry_and_minsize(self):
-        compact_height_factor = 0.8
-        width = UIConstants.WINDOW_WIDTH if not self.compact_mode else UIConstants.COMPACT_WIDTH
-        height = UIConstants.WINDOW_HEIGHT if not self.compact_mode else UIConstants.COMPACT_HEIGHT
-        min_width = UIConstants.WINDOW_MIN_WIDTH if not self.compact_mode else UIConstants.COMPACT_WIDTH
-        min_height = UIConstants.WINDOW_MIN_HEIGHT if not self.compact_mode else UIConstants.COMPACT_HEIGHT * compact_height_factor
-
-        return width, height, min_width, min_height
-
-
-    def toggle_elements(self, compact, min_width):
-        hidden_elements = [
-            self.layout_frame,
-            self.admin_button,
-            self.theme_switch,
-            #self.create_config_button,
-            #self.delete_config_button,
-            self.dummy_spacer_button,
-            self.config_folder_button,
-            self.image_folder_button,
-            self.image_download_button,
-            self.screenshot_button,
-            self.details_switch,
-            self.toggle_images_switch,
-            self.aot_label,
-            self.left_radio,
-            self.center_radio,
-            self.right_radio,
-            self.snap_label,
-        ]
-
-        self.managed_widget.setVisible(compact)
-
-        if compact:
-            self.combo_box.setFixedWidth(min_width - 20)
-        else:
-            self.combo_box.setFixedWidth(min_width / 2)
-
-        for widget in hidden_elements:
-            if compact:
-                widget.hide()
-            else:
-                widget.show()
-
-
-        if compact:
-            self.b1.setDirection(QBoxLayout.TopToBottom)  # vertical
-            self.b2.setDirection(QBoxLayout.TopToBottom)  # vertical
-        else:
-            self.b1.setDirection(QBoxLayout.LeftToRight)  # horizontal
-            self.b2.setDirection(QBoxLayout.LeftToRight)  # horizontal
-
-
-    def toggle_compact(self, startup=False):
-        if not startup:
-            self.compact_mode = not self.compact_mode
-
-        width, height, min_width, min_height = self.get_geometry_and_minsize()
-        self.toggle_elements(self.compact_mode, min_width)
-
-        if self.snap == 0:
-            pos_x = (self.res_x // 2) - ((width) // 2)
-        elif self.snap == 1:
-            pos_x = -7
-        elif self.snap == 2:
-            pos_x = self.res_x - (width) - 7
-        else:
-            pos_x = 100
-        pos_y = (self.res_y // 2) - ((height) // 2)
-
-        self.setMinimumSize(min_width, min_height)
-        self.setGeometry(pos_x, pos_y, width, height)
-
-
-    # Update the text for the managed windows view (for compact mode)
-    def update_managed_text(self, lines, aot_flags):
-        self.managed_text.setReadOnly(False)
-        self.managed_text.clear()
-
-        for i, line in enumerate(lines):
-            if aot_flags[i]:
-                self.managed_text.setTextColor(self.colors.TEXT_ALWAYS_ON_TOP)
-            else:
-                self.managed_text.setTextColor(self.colors.TEXT_NORMAL)  # define normal color
-            self.managed_text.append(line)
-
-        self.managed_text.setReadOnly(True)
-
-
-
-    # ------------- UI composition -------------
-    def _build_ui(self):
-        width, height, min_width, min_height = self.get_geometry_and_minsize()
-
-        # Header
-        header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(15, 0, 15, 0)
-        header_layout.setSpacing(10)
-
-        self.resolution_label = QLabel(f"{self.res_x} x {self.res_y}", self)
-        header_layout.addWidget(self.resolution_label, alignment=Qt.AlignLeft)
-
-        app_mode = "Admin" if self.is_admin else "User"
-        self.admin_label = QLabel(f"{app_mode} mode", self)
-        self.admin_label.setStyleSheet(
-            f"color: {self.colors.ADMIN_ENABLED if self.is_admin else self.colors.TEXT_NORMAL};",
-        )
-        header_layout.addWidget(self.admin_label, alignment=Qt.AlignRight)
-        self.main_layout.addLayout(header_layout)
-
-        # Combo row
-        combo_layout = QHBoxLayout()
-        combo_layout.setContentsMargins(10, 0, 10, 0)
-        combo_layout.setSpacing(0)
-
-        self.combo_box = QComboBox(self)
-        self.combo_box.setFixedWidth(min_width - 20 if self.compact_mode else min_width / 2)
-        self.combo_box.currentIndexChanged.connect(lambda _: _cb(self.callbacks, "config_selected")())
-        combo_layout.addWidget(self.combo_box, alignment=Qt.AlignLeft)
-
-        self.admin_button = QPushButton("Restart as Admin" if not self.is_admin else "Admin mode", self)
-        self.admin_button.setEnabled(not self.is_admin)
-        self.admin_button.clicked.connect(_cb(self.callbacks, "restart_as_admin"))
-
-        self.theme_switch = QCheckBox("light / dark", self)
-        self.theme_switch.setChecked(False)
-        self.theme_switch.stateChanged.connect(self._on_theme_toggle)
-
-        right_layout = QHBoxLayout()
-        right_layout.addWidget(self.theme_switch, alignment=Qt.AlignRight)
-        right_layout.addWidget(self.admin_button, alignment=Qt.AlignRight)
-
-        combo_layout.addLayout(right_layout)
-        self.main_layout.addLayout(combo_layout)
-
-        # Managed area
-        self.managed_widget = QWidget(self)
-        self.managed_widget.setVisible(self.compact_mode)
-        mf_layout = QVBoxLayout(self.managed_widget)
-        mf_layout.setContentsMargins(10, 0, 10, 0)
-
-        self.managed_label = QLabel("Managed windows:", self)
-        mf_layout.addWidget(self.managed_label, alignment=Qt.AlignLeft)
-
-        self.managed_text = QTextEdit(self)
-        self.managed_text.setFixedHeight(80)
-        mf_layout.addWidget(self.managed_text)
-        self.main_layout.addWidget(self.managed_widget)
-
-        # Layout container (preview)
-        lc_layout = QVBoxLayout()
-        lc_layout.setContentsMargins(10, 5, 10, 0)
-
-        self.layout_frame = ScreenLayoutWidget(
-            self,
-            self.res_x, self.res_y, [],
-            assets_dir=getattr(self, "assets_dir", None),
-            window_details=self.details,
-        )
-        lc_layout.addWidget(self.layout_frame, 1)
-        self.main_layout.addLayout(lc_layout, 1)
-
-        # Status row
-        status_layout = QHBoxLayout()
-        status_layout.setContentsMargins(20, 0, 20, 0)
-
-        self.info_label = QLabel("", self)
-        status_layout.addWidget(self.info_label)
-        self.main_layout.addLayout(status_layout)
-
-        # Buttons area
-        btn_layout = QVBoxLayout()
-        btn_layout.setContentsMargins(10, 5, 10, 5)
-
-        # Row 1
-        self.b1 = QHBoxLayout()
-        self.apply_config_button = QPushButton("Apply config", self)
-        self.reset_config_button = QPushButton("Reset config", self)
-        self.create_config_button = QPushButton("Create config", self)
-        self.delete_config_button = QPushButton("Delete config", self)
-
-        self.b1.addWidget(self.apply_config_button)
-        self.b1.addWidget(self.reset_config_button)
-        self.b1.addWidget(self.create_config_button)
-        self.b1.addWidget(self.delete_config_button)
-
-        btn_layout.addLayout(self.b1)
-
-        # Row 2
-        self.b2 = QHBoxLayout()
-        self.config_folder_button = QPushButton("Open config folder", self)
-        self.screenshot_button = QPushButton("Take screenshots", self)
-        self.image_download_button = (
-            QPushButton("Download images"
-                        if not self.client_info_missing else "Client info missing",
-                        self)
-                        )
-        self.image_download_button.setEnabled(not self.client_info_missing)
-        self.image_folder_button = QPushButton("Open image folder", self)
-
-        self.b2.addWidget(self.config_folder_button)
-        self.b2.addWidget(self.screenshot_button)
-        self.b2.addWidget(self.image_download_button)
-        self.b2.addWidget(self.image_folder_button)
-
-        btn_layout.addLayout(self.b2)
-
-        # AOT row
-        aot_l = QHBoxLayout()
-
-        self.aot_button = QPushButton("Toggle AOT", self)
-        self.aot_button.setEnabled(False)
-        self.aot_label = QLabel(Messages.ALWAYS_ON_TOP_DISABLED, self)
-        self.aot_label.setContentsMargins(10,0,10,0)
-
-        # Dummy button to keep consistent spacing
-        self.dummy_spacer_button = QPushButton("dummy", self)
-        self.dummy_spacer_button.setFixedHeight(0)
-        self.dummy_spacer_button.setEnabled(False)
-        self.dummy_spacer_button.setVisible(True)
-
-        self.toggle_compact_button = QPushButton("Toggle compact", self)
-
-        aot_l.addWidget(self.aot_button)
-        aot_l.addWidget(self.aot_label)
-        aot_l.addWidget(self.dummy_spacer_button)
-        aot_l.addWidget(self.toggle_compact_button)
-
-        btn_layout.addLayout(aot_l)
-
-        # Images / switches row
-        img_l = QHBoxLayout()
-        img_l.setContentsMargins(0, 10, 0, 10)
-        img_l.setSpacing(20)
-        self.auto_apply_switch = QCheckBox("Auto re-apply", self)
-        self.auto_apply_switch.stateChanged.connect(self._on_reapply_toggle)
-        img_l.addWidget(self.auto_apply_switch)
-
-        self.details_switch = QCheckBox("Show window details", self)
-        self.details_switch.setChecked(self.details)
-        self.details_switch.stateChanged.connect(self._on_details_toggle)
-        img_l.addWidget(self.details_switch)
-
-        self.toggle_images_switch = QCheckBox("Images", self)
-        self.toggle_images_switch.setChecked(self.use_images)
-        self.toggle_images_switch.stateChanged.connect(self._on_images_toggle)
-        img_l.addWidget(self.toggle_images_switch)
-
-        img_l.addStretch()  # push snap group right
-
-        snap_l = QHBoxLayout()
-        snap_l.setSpacing(10)
-        self.snap_label = QLabel("Application open position:", self)
-        snap_l.addWidget(self.snap_label)
-
-        radio_width = 60
-        self.left_radio = QRadioButton("Left", self)
-        self.left_radio.setFixedWidth(radio_width)
-
-        self.center_radio = QRadioButton("Center", self)
-        self.center_radio.setFixedWidth(radio_width)
-
-        self.right_radio = QRadioButton("Right", self)
-        self.right_radio.setFixedWidth(radio_width)
-
-        self.snap_group = QButtonGroup(self)
-        self.snap_group.addButton(self.left_radio, 1)
-        self.snap_group.addButton(self.center_radio, 0)
-        self.snap_group.addButton(self.right_radio, 2)
-
-        if self.snap == 1:
-            self.left_radio.setChecked(True)
-        elif self.snap == 2:
-            self.right_radio.setChecked(True)
-        else:
-            self.center_radio.setChecked(True)
-
-        snap_l.addWidget(self.left_radio)
-        snap_l.addWidget(self.center_radio)
-        snap_l.addWidget(self.right_radio)
-
-        img_l.addLayout(snap_l)
-
-        btn_layout.addLayout(img_l)
-
-        self.main_layout.addLayout(btn_layout)
-
-
-
-        # Default selection (match startup)
-        if self.snap == 1:
-            self.left_radio.setChecked(True)
-        elif self.snap == 2:
-            self.right_radio.setChecked(True)
-        else:
-            self.center_radio.setChecked(True)
-
-
-
-    def _connect_callbacks(self):
-        self.apply_config_button.clicked.connect(_cb(self.callbacks, "apply_config"))
-        self.create_config_button.clicked.connect(_cb(self.callbacks, "create_config"))
-        self.delete_config_button.clicked.connect(_cb(self.callbacks, "delete_config"))
-        self.config_folder_button.clicked.connect(_cb(self.callbacks, "open_config_folder"))
-        self.reset_config_button.clicked.connect(_cb(self.callbacks, "apply_config"))
-        self.screenshot_button.clicked.connect(_cb(self.callbacks, "screenshot"))
-        self.image_download_button.clicked.connect(_cb(self.callbacks, "download_images"))
-        self.image_folder_button.clicked.connect(_cb(self.callbacks, "image_folder"))
-        self.snap_group.buttonToggled.connect(self._on_snap_toggle)
-        self.toggle_compact_button.clicked.connect(_cb(self.callbacks, "toggle_compact"))
-
-
-
-    # ------------- Theme & toggles -------------
-
-    def _apply_theme(self):
-        self.setStyleSheet(f"""
-            QWidget {{ background: {self.colors.BACKGROUND}; color: {self.colors.TEXT_NORMAL}; padding: 0px; border: 0px solid {self.colors.BORDER_COLOR};}}
-            QFrame {{ background: {self.colors.BACKGROUND}; padding: 0px; border: 0px solid {self.colors.BORDER_COLOR};}}
-            QPushButton {{
-                background: {self.colors.BUTTON_NORMAL};
-                border-radius: 10;
-                border: 2px solid {self.colors.BORDER_COLOR};
-                padding: 5px;
-                height: 40px;
-            }}
-            QPushButton:hover {{
-                background: {self.colors.BUTTON_HOVER};
-            }}
-            QPushButton:disabled {{
-                background: {self.colors.BUTTON_DISABLED};
-                color: #888;
-            }}
-            QLineEdit, QTextEdit, QComboBox {{
-                background: {self.colors.BUTTON_NORMAL};
-                border-radius: 0;
-                border: 2px solid {self.colors.BORDER_COLOR};
-                padding: 5px;
-            }}
-            QCheckBox {{ padding: 0px; }}
-        """)
-        self.reset_config_button.setStyleSheet(f"""
-            QPushButton {{
-                background: {self.colors.BUTTON_ACTIVE};
-                border: 1px solid {self.colors.BORDER_COLOR};
-                padding: 5px;
-            }}
-            QPushButton:hover {{
-                background: {self.colors.BUTTON_ACTIVE_HOVER};
-            }}
-            QPushButton:disabled {{
-                background: {self.colors.BUTTON_DISABLED};
-                color: #888;
-            }}
-        """)
-        self.aot_button.setStyleSheet("""
-            QPushButton {
-                height: 20px;
-            }
-            """)
-        self.toggle_compact_button.setStyleSheet("""
-            QPushButton {
-                height: 20px;
-            }
-            """)
-        # Re-apply dynamic states after theme reset
-        self.format_apply_reset_button()
-        self.format_admin_button(self.is_admin)
-
-
-    def format_apply_reset_button(self, selected_config_shortname=None, disable=None):
-        if disable:
-            self.apply_config_button.setDisabled(True)
-            self.reset_config_button.setDisabled(True)
-            return
-
-        if self.config_active:
-            self.apply_config_button.setDisabled(True)
-            self.reset_config_button.setEnabled(True)
-            self.info_label.setText(
-                f"Active: {selected_config_shortname if selected_config_shortname else self.applied_config}",
-            )
-            self.aot_button.setEnabled(True)
-        else:
-            self.reset_config_button.setDisabled(True)
-            self.apply_config_button.setEnabled(True)
-            self.info_label.setText("")
-            self.aot_button.setEnabled(False)
-            self.reapply = False
-
-
-    def format_admin_button(self, admin_enabled: bool):
-        if admin_enabled:
-            # Admin mode active → button looks active but disabled
-            self.admin_button.setStyleSheet(f"""
-                QPushButton {{
-                    background: {self.colors.BUTTON_ACTIVE};
-                    border: 2px solid {self.colors.BORDER_COLOR};
-                    padding: 5px;
-                    color: {self.colors.TEXT_NORMAL};
-                    height: 20px;
-                }}
-                QPushButton:hover {{
-                    background: {self.colors.BUTTON_ACTIVE_HOVER};
-                }}
-                QPushButton:disabled {{
-                    background: {self.colors.BUTTON_ACTIVE};
-                    color: {self.colors.TEXT_NORMAL};
-                }}
-            """)
-            self.admin_button.setEnabled(False)
-            self.admin_button.setText("Admin enabled")
-        else:
-            # Admin mode inactive → normal style, enabled
-            self.admin_button.setStyleSheet(f"""
-                QPushButton {{
-                    background: {self.colors.BUTTON_NORMAL};
-                    border: 1px solid {self.colors.BORDER_COLOR};
-                    padding: 5px;
-                    color: {self.colors.TEXT_NORMAL};
-                    height: 20px;
-                }}
-                QPushButton:hover {{
-                    background: {self.colors.BUTTON_HOVER};
-                }}
-                QPushButton:disabled {{
-                    background: {self.colors.BUTTON_DISABLED};
-                    color: #888;
-                }}
-            """)
-            self.admin_button.setEnabled(True)
-            self.admin_button.setText("Enable admin")
-
-
-    def invert_colors(self):
-        for attr in dir(self.colors):
-            if attr.isupper():
-                value = getattr(self.colors, attr)
-                if isinstance(value, str):
-                    setattr(self.colors, attr, invert_hex_color(value))
-
-
-    def _on_theme_toggle(self, state: int):
-        # True -> light; False -> dark
-        self.style_dark = not bool(state)
-        self.invert_colors()
-        self._apply_theme()
-
-
-    def _on_reapply_toggle(self, state: int):
-        self.reapply = self.auto_apply_switch.isChecked()
-
-
-    def _on_details_toggle(self, _state: int):
-        self.details = self.details_switch.isChecked()
-        self.callback_manager.save_settings()
-        if self.layout_frame:
-            self.layout_frame.window_details = self.details
-            self.layout_frame.update()
-
-
-    def _on_images_toggle(self, _state: int):
-        self.use_images = self.toggle_images_switch.isChecked()
-        self.callback_manager.save_settings()
-        if self.layout_frame:
-            self.layout_frame.use_images = self.use_images
-            self.layout_frame.update()
-
-
-    def _on_snap_toggle(self, button):
-        if button == self.left_radio:
-            self.snap = 1
-        elif button == self.center_radio:
-            self.snap = 0
-        elif button == self.right_radio:
-            self.snap = 2
-
-        self.callback_manager.save_settings()
-
-
-    # Timer for auto reapply
-    def reapply_timer(self):
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.callback_manager.start_auto_reapply)
-        self.timer.start(500)
-
-
-    # ------------- Managed text (compact mode) -------------
-    def setup_managed_text(self):
-        if not self.managed_frame.isVisible():
-            self.managed_frame.setVisible(True)
-        # Label + Text already created; ensure heights
-        self.managed_text.setFixedHeight(80)
-
-
-    # ------------- Layout frame population -------------
-    def set_layout_frame(self, windows: list[WindowInfo]):
-        self.layout_frame.windows = windows
-        self.layout_frame.update()
-
-
-    # ------------- Create Config workflow -------------
-    def create_config_ui(self, parent, window_titles, save_callback, settings_callback, refresh_callback):
-        dlg = ConfigDialog(
-            parent,
-            window_titles,
-            save_callback,
-            settings_callback,
-            refresh_callback,
-            self.res_x, self.res_y,
-            assets_dir=getattr(self, "assets_dir", None),
-            auto_align_layouts=self.auto_align_layouts,
-            )
-        dlg.exec()
-
-
-
-
-
-
+# Create screen preview
 
 class ScreenLayoutWidget(QWidget):
     def __init__(self, parent, screen_width, screen_height, windows, assets_dir, window_details=True):
@@ -1221,7 +1252,8 @@ class ScreenLayoutWidget(QWidget):
         pen = QPen(frame_color, frame_width)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
-        painter.drawRect(frame_rect)
+        corner_radius = 10
+        painter.drawRoundedRect(frame_rect, corner_radius, corner_radius)
 
     def draw_window(self, painter, x_offset, y_offset, win, scale):
         x = x_offset + win.pos_x * scale
@@ -1331,3 +1363,6 @@ class ScreenLayoutWidget(QWidget):
                     label.move(int(x + (w - label.width()) / 2), int(y + h - label.height() - 5))
                     label.show()
                     self.active_labels.add(win.search_title)
+
+
+

@@ -37,10 +37,7 @@ def load_pyside_gui()->None:
 def set_default_config(app:object)->None:
     """Set the default config at startup."""
     callback_manager = app.callback_manager
-
-    default_config = config_manager.detect_default_config()
-    callback_manager.update_config_list(default_config)
-
+    callback_manager.detect_config()
 
 
 if __name__ == "__main__":
