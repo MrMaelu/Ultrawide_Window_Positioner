@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import os
 from fractions import Fraction
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, QRect, Qt, QTimer
@@ -48,106 +48,110 @@ if TYPE_CHECKING:
 def _cb(d: dict[str, Callable]|None, key:str, default:Callable|None = None)->Callable:
     if d and key in d and callable(d[key]):
         return d[key]
-    return (default or (lambda *a, **k: None))
+    return (default or (lambda *_args, **_kwargs: None))
 
 
 # Main window
 
 class PysideGuiManager(QMainWindow):
-    def __init__(self, compact: int = 0, is_admin: bool = False, use_images: int = 0, snap: int = 0, details: int = 0, config_manager=None, asset_manager=None):
+    """PySide-based GUI manager for the Ultrawide Window Positioner application."""
+
+    def __init__(
+        self,
+        *,
+        initial_states:dict,
+        is_admin: bool = False,
+        config_manager: object = None,
+        asset_manager: object = None,
+    ) -> None:
+        """Initialize the main PySide GUI window."""
         super().__init__()
 
         self.ui_code = "pyside"
+        self._init_state(is_admin, initial_states)
+        self._init_managers(config_manager, asset_manager)
+        self._init_screen()
+        self._init_ui_containers()
+        self._setup_ui()
+        self._apply_snap_selection()
+        self.reapply_timer()
+        self.managed_widget.installEventFilter(self)
 
-        # App title
-        self.application_name = "Ultrawide Window Positioner"
-        self.setWindowTitle(self.application_name)
 
-        # Managers
-        self.asset_manager = asset_manager
-        self.config_manager = config_manager
-        self.callback_manager = CallbackManager(self, self.config_manager, self.asset_manager)
-        self.callbacks = self.callback_manager.callbacks
-        self.assets_dir = self.callback_manager.assets_dir
-
-        # State
-        self.compact_mode = compact
+    # ---------------- Helper methods ----------------
+    def _init_state(self, is_admin:int, initial_states:dict) -> None:
+        """Initialize basic window state variables."""
+        self.compact_mode = initial_states["compact"]
+        self.is_admin = is_admin
+        self.use_images = bool(initial_states["use_images"])
+        self.snap = initial_states["snap_side"]
+        self.details = bool(initial_states["details"])
         self.style_dark = True
-        self.ctk_theme_bg = None  # placeholder for parity
+        self.ctk_theme_bg = None
         self.config_active = False
         self.applied_config = None
-        self.colors = Colors()
-
-        self.snap = snap
-        self.reapply = False
-        self.details = bool(details)
-        self.use_images = bool(use_images)
-
-        # Screen area size (SystemMetrics 78/79 in Win32; Qt alternative)
-        # AvailableGeometry is closer to work-area; use that to mimic taskbar consideration elsewhere
-        screen = QApplication.primaryScreen()
-        geom = screen.geometry()
-        self.res_x = geom.width()
-        self.res_y = geom.height()
-
-        width, height, min_width, min_height = self.get_geometry_and_minsize()
-
-        # Startup position
-        if self.snap == 0:
-            pos_x = (self.res_x // 2) - ((width) // 2)
-        elif self.snap == 1:
-            pos_x = -7
-        elif self.snap == 2:
-            pos_x = self.res_x - (width) - 7
-        else:
-            pos_x = 100
-
-        pos_y = (self.res_y // 2) - ((height) // 2)
-
-        self.is_admin = is_admin
-        self.client_info_missing = getattr(self.asset_manager, "client_info_missing", False)
-
-
-        # Data
         self.canvas: ScreenLayoutWidget | None = None
         self.managed_label: QLabel | None = None
         self.managed_text: QTextEdit | None = None
         self.ratio_label: QLabel | None = None
         self.layout_frame_create_config: ScreenLayoutWidget | None = None
         self.layout_number = 0
+        self.colors = Colors()
 
 
-        # Load auto-align layouts
-        self.auto_align_layouts = self.config_manager.load_or_create_layouts(self.config_manager.layout_config_file)
+    def _init_managers(self, config_manager:Callable, asset_manager:Callable) -> None:
+        """Initialize manager objects and related shortcuts."""
+        self.asset_manager = asset_manager
+        self.config_manager = config_manager
+        self.callback_manager = CallbackManager(self, config_manager, asset_manager)
+        self.callbacks = self.callback_manager.callbacks
+        self.assets_dir = self.callback_manager.assets_dir
+        self.client_info_missing = getattr(asset_manager, "client_info_missing", False)
+        self.auto_align_layouts = config_manager.load_or_create_layouts(
+            config_manager.layout_config_file,
+        )
 
 
-        # Main UI containers
+    def _init_screen(self) -> None:
+        """Initialize screen resolution variables."""
+        screen = QApplication.primaryScreen()
+        geom = screen.geometry()
+        self.res_x = geom.width()
+        self.res_y = geom.height()
+
+
+    def _init_ui_containers(self) -> None:
+        """Initialize main UI containers and layout."""
         central = QWidget()
         self.setCentralWidget(central)
-        central.setContentsMargins(0,0,0,0)
+        central.setContentsMargins(0, 0, 0, 0)
         self.main_layout = QVBoxLayout(central)
-        self.main_layout.setContentsMargins(0,0,0,0)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(4)
 
+
+    def _setup_ui(self) -> None:
+        """Build the UI, apply theme, connect callbacks."""
         self._build_ui()
         self.toggle_compact(startup=True)
         self._connect_callbacks()
-        self._apply_theme()  # default dark
-
-        self.setMinimumSize(min_width, min_height)
-        self.setGeometry(pos_x, pos_y, width, height)
+        self._apply_theme()
 
 
-        # Start monitoring for reapply
-        self.reapply_timer()
+    def _apply_snap_selection(self) -> None:
+        """Set initial snap radio button based on snap value."""
+        snap_left = 1
+        snap_right = 2
+        if self.snap == snap_left:
+            self.left_radio.setChecked(True)
+        elif self.snap == snap_right:
+            self.right_radio.setChecked(True)
+        else:
+            self.center_radio.setChecked(True)
 
 
-        # Set event filter for managed windows widget
-        self.managed_widget.installEventFilter(self)
-
-
-    # Catch mouse wheel events on managed windows widget
-    def eventFilter(self, source, event):
+    def eventFilter(self, source:object, event:QEvent)->bool:  # noqa: N802
+        """Catch mouse wheel events on managed windows widget."""
         if source is self.managed_widget and event.type() == QEvent.Wheel:
             combo = self.combo_box
             delta = event.angleDelta().y()
@@ -164,23 +168,38 @@ class PysideGuiManager(QMainWindow):
         return super().eventFilter(source, event)
 
 
-    def get_geometry_and_minsize(self):
+    def get_geometry_and_minsize(self)->tuple[int,int,int,int]:
+        """Get the sizes needed to set geometry and minsize."""
         compact_height_factor = 0.8
-        width = UIConstants.WINDOW_WIDTH if not self.compact_mode else UIConstants.COMPACT_WIDTH
-        height = UIConstants.WINDOW_HEIGHT if not self.compact_mode else UIConstants.COMPACT_HEIGHT
-        min_width = UIConstants.WINDOW_MIN_WIDTH if not self.compact_mode else UIConstants.COMPACT_WIDTH
-        min_height = UIConstants.WINDOW_MIN_HEIGHT if not self.compact_mode else UIConstants.COMPACT_HEIGHT * compact_height_factor
-
+        width = (
+            UIConstants.WINDOW_WIDTH
+            if not self.compact_mode
+            else UIConstants.COMPACT_WIDTH
+            )
+        height = (
+            UIConstants.WINDOW_HEIGHT
+            if not self.compact_mode
+            else UIConstants.COMPACT_HEIGHT
+            )
+        min_width = (
+            UIConstants.WINDOW_MIN_WIDTH
+            if not self.compact_mode
+            else UIConstants.COMPACT_WIDTH
+            )
+        min_height = (
+            UIConstants.WINDOW_MIN_HEIGHT
+            if not self.compact_mode
+            else UIConstants.COMPACT_HEIGHT * compact_height_factor
+            )
         return width, height, min_width, min_height
 
 
-    def toggle_elements(self, compact, min_width):
+    def toggle_elements(self, *, compact:bool, min_width:int)->None:
+        """Hide or show elements for compact/full mode."""
         hidden_elements = [
             self.layout_frame,
             self.admin_button,
             self.theme_switch,
-            #self.create_config_button,
-            #self.delete_config_button,
             self.detect_config_button,
             self.config_folder_button,
             self.image_folder_button,
@@ -217,18 +236,21 @@ class PysideGuiManager(QMainWindow):
             self.b2.setDirection(QBoxLayout.LeftToRight)  # horizontal
 
 
-    def toggle_compact(self, startup=False):
+    def toggle_compact(self, startup:int=0)->None:
+        """Toggle between compact and full mode."""
         if not startup:
             self.compact_mode = not self.compact_mode
 
         width, height, min_width, min_height = self.get_geometry_and_minsize()
-        self.toggle_elements(self.compact_mode, min_width)
+        self.toggle_elements(compact=self.compact_mode, min_width=min_width)
 
+        snap_left = 1
+        snap_right = 2
         if self.snap == 0:
             pos_x = (self.res_x // 2) - ((width) // 2)
-        elif self.snap == 1:
+        elif self.snap == snap_left:
             pos_x = -7
-        elif self.snap == 2:
+        elif self.snap == snap_right:
             pos_x = self.res_x - (width) - 7
         else:
             pos_x = 100
@@ -238,8 +260,8 @@ class PysideGuiManager(QMainWindow):
         self.setGeometry(pos_x, pos_y, width, height)
 
 
-    # Update the text for the managed windows view (for compact mode)
-    def update_managed_text(self, lines, aot_flags):
+    def update_managed_text(self, lines:str, aot_flags:str)->None:
+        """Update the text for the managed windows view (for compact mode)."""
         self.managed_text.setReadOnly(False)
         self.managed_text.clear()
 
@@ -247,18 +269,31 @@ class PysideGuiManager(QMainWindow):
             if aot_flags[i]:
                 self.managed_text.setTextColor(self.colors.TEXT_ALWAYS_ON_TOP)
             else:
-                self.managed_text.setTextColor(self.colors.TEXT_NORMAL)  # define normal color
+                self.managed_text.setTextColor(self.colors.TEXT_NORMAL)
             self.managed_text.append(line)
 
         self.managed_text.setReadOnly(True)
 
 
+    # ---------------- Build the GUI ----------------
 
-    # ------------- UI composition -------------
-    def _build_ui(self):
+    def _build_ui(self) -> None:
+        """Build the main PySide GUI layout."""
         width, height, min_width, min_height = self.get_geometry_and_minsize()
 
-        # Header
+        self._build_header()
+        self._build_combo_row(min_width)
+        self._build_managed_area()
+        self._build_layout_preview()
+        self._build_status_row()
+        self._build_buttons_area()
+        self._build_images_and_snap_row()
+
+
+    # ---------------- Helper methods ----------------
+
+    def _build_header(self) -> None:
+        """Create the header layout with resolution and admin labels."""
         header_layout = QHBoxLayout()
         header_layout.setContentsMargins(15, 0, 15, 0)
         header_layout.setSpacing(10)
@@ -267,24 +302,31 @@ class PysideGuiManager(QMainWindow):
         header_layout.addWidget(self.resolution_label, alignment=Qt.AlignLeft)
 
         app_mode = "Admin" if self.is_admin else "User"
+        color = self.colors.ADMIN_ENABLED if self.is_admin else self.colors.TEXT_NORMAL
         self.admin_label = QLabel(f"{app_mode} mode", self)
-        self.admin_label.setStyleSheet(
-            f"color: {self.colors.ADMIN_ENABLED if self.is_admin else self.colors.TEXT_NORMAL};",
-        )
+        self.admin_label.setStyleSheet(f"color: {color};")
         header_layout.addWidget(self.admin_label, alignment=Qt.AlignRight)
+
         self.main_layout.addLayout(header_layout)
 
-        # Combo row
+
+    def _build_combo_row(self, min_width: int) -> None:
+        """Create combo box row with theme switch and admin button."""
         combo_layout = QHBoxLayout()
         combo_layout.setContentsMargins(10, 0, 10, 0)
         combo_layout.setSpacing(0)
 
+        width = min_width - 20 if self.compact_mode else min_width / 2
         self.combo_box = QComboBox(self)
-        self.combo_box.setFixedWidth(min_width - 20 if self.compact_mode else min_width / 2)
-        self.combo_box.currentIndexChanged.connect(lambda _: _cb(self.callbacks, "config_selected")())
+        self.combo_box.setFixedWidth(width)
+        self.combo_box.currentIndexChanged.connect(
+            lambda _: _cb(self.callbacks, "config_selected")(),
+        )
         combo_layout.addWidget(self.combo_box, alignment=Qt.AlignLeft)
 
-        self.admin_button = QPushButton("Restart as Admin" if not self.is_admin else "Admin mode", self)
+        self.admin_button = QPushButton(
+            "Restart as Admin" if not self.is_admin else "Admin mode", self,
+        )
         self.admin_button.setEnabled(not self.is_admin)
         self.admin_button.clicked.connect(_cb(self.callbacks, "restart_as_admin"))
 
@@ -295,11 +337,13 @@ class PysideGuiManager(QMainWindow):
         right_layout = QHBoxLayout()
         right_layout.addWidget(self.theme_switch, alignment=Qt.AlignRight)
         right_layout.addWidget(self.admin_button, alignment=Qt.AlignRight)
-
         combo_layout.addLayout(right_layout)
+
         self.main_layout.addLayout(combo_layout)
 
-        # Managed area
+
+    def _build_managed_area(self) -> None:
+        """Create managed windows area with label and text edit."""
         self.managed_widget = QWidget(self)
         self.managed_widget.setVisible(self.compact_mode)
         mf_layout = QVBoxLayout(self.managed_widget)
@@ -311,89 +355,101 @@ class PysideGuiManager(QMainWindow):
         self.managed_text = QTextEdit(self)
         self.managed_text.setFixedHeight(80)
         mf_layout.addWidget(self.managed_text)
+
         self.main_layout.addWidget(self.managed_widget)
 
-        # Layout container (preview)
+
+    def _build_layout_preview(self) -> None:
+        """Create layout container for screen preview."""
         lc_layout = QVBoxLayout()
         lc_layout.setContentsMargins(10, 5, 10, 0)
 
         self.layout_frame = ScreenLayoutWidget(
             self,
-            self.res_x, self.res_y, [],
+            self.res_x,
+            self.res_y,
+            [],
             assets_dir=getattr(self, "assets_dir", None),
             window_details=self.details,
         )
         lc_layout.addWidget(self.layout_frame, 1)
         self.main_layout.addLayout(lc_layout, 1)
 
-        # Status row
+
+    def _build_status_row(self) -> None:
+        """Create a status row with info label."""
         status_layout = QHBoxLayout()
         status_layout.setContentsMargins(20, 0, 20, 0)
 
         self.info_label = QLabel("", self)
         status_layout.addWidget(self.info_label)
+
         self.main_layout.addLayout(status_layout)
 
-        # Buttons area
+
+    def _build_buttons_area(self) -> None:
+        """Create buttons rows for config actions and AOT controls."""
         btn_layout = QVBoxLayout()
         btn_layout.setContentsMargins(10, 5, 10, 5)
 
-        # Row 1
+        # Row 1: config buttons
         self.b1 = QHBoxLayout()
-        self.apply_config_button = QPushButton("Apply config", self)
-        self.reset_config_button = QPushButton("Reset config", self)
-        self.create_config_button = QPushButton("Create config", self)
-        self.delete_config_button = QPushButton("Delete config", self)
-
-        self.b1.addWidget(self.apply_config_button)
-        self.b1.addWidget(self.reset_config_button)
-        self.b1.addWidget(self.create_config_button)
-        self.b1.addWidget(self.delete_config_button)
-
+        for text, attr in [
+            ("Apply config", "apply_config_button"),
+            ("Reset config", "reset_config_button"),
+            ("Create config", "create_config_button"),
+            ("Delete config", "delete_config_button"),
+        ]:
+            btn = QPushButton(text, self)
+            setattr(self, attr, btn)
+            self.b1.addWidget(btn)
         btn_layout.addLayout(self.b1)
 
-        # Row 2
+        # Row 2: folder / screenshot / images
         self.b2 = QHBoxLayout()
-        self.config_folder_button = QPushButton("Open config folder", self)
-        self.screenshot_button = QPushButton("Take screenshots", self)
-        self.image_download_button = (
-            QPushButton("Download images"
-                        if not self.client_info_missing else "Client info missing",
-                        self)
-                        )
-        self.image_download_button.setEnabled(not self.client_info_missing)
-        self.image_folder_button = QPushButton("Open image folder", self)
-
-        self.b2.addWidget(self.config_folder_button)
-        self.b2.addWidget(self.screenshot_button)
-        self.b2.addWidget(self.image_download_button)
-        self.b2.addWidget(self.image_folder_button)
-
+        for text, attr, enabled in [
+            ("Open config folder", "config_folder_button", True),
+            ("Take screenshots", "screenshot_button", True),
+            (
+                "Download images"
+                if not self.client_info_missing
+                else "Client info missing",
+                "image_download_button",
+                not self.client_info_missing,
+            ),
+            ("Open image folder", "image_folder_button", True),
+        ]:
+            btn = QPushButton(text, self)
+            btn.setEnabled(enabled)
+            setattr(self, attr, btn)
+            self.b2.addWidget(btn)
         btn_layout.addLayout(self.b2)
 
-        # AOT row
+        # Row 3: AOT / toggle / detect
         aot_l = QHBoxLayout()
-
         self.aot_button = QPushButton("Toggle AOT", self)
         self.aot_button.setEnabled(False)
         self.aot_label = QLabel(Messages.ALWAYS_ON_TOP_DISABLED, self)
-        self.aot_label.setContentsMargins(10,0,10,0)
-
+        self.aot_label.setContentsMargins(10, 0, 10, 0)
         self.detect_config_button = QPushButton("Detect config", self)
-
         self.toggle_compact_button = QPushButton("Toggle compact", self)
 
-        aot_l.addWidget(self.aot_button)
-        aot_l.addWidget(self.aot_label)
-        aot_l.addWidget(self.detect_config_button)
-        aot_l.addWidget(self.toggle_compact_button)
-
+        for widget in [self.aot_button,
+                       self.aot_label,
+                       self.detect_config_button,
+                       self.toggle_compact_button]:
+            aot_l.addWidget(widget)
         btn_layout.addLayout(aot_l)
 
-        # Images / switches row
+        self.main_layout.addLayout(btn_layout)
+
+
+    def _build_images_and_snap_row(self) -> None:
+        """Create checkboxes for auto re-apply, details, images, and snap selection."""
         img_l = QHBoxLayout()
-        img_l.setContentsMargins(0, 10, 0, 10)
+        img_l.setContentsMargins(10, 10, 10, 10)
         img_l.setSpacing(20)
+
         self.auto_apply_switch = QCheckBox("Auto re-apply", self)
         self.auto_apply_switch.stateChanged.connect(self._on_reapply_toggle)
         img_l.addWidget(self.auto_apply_switch)
@@ -410,6 +466,7 @@ class PysideGuiManager(QMainWindow):
 
         img_l.addStretch()  # push snap group right
 
+        # Snap selection
         snap_l = QHBoxLayout()
         snap_l.setSpacing(10)
         self.snap_label = QLabel("Application open position:", self)
@@ -417,69 +474,66 @@ class PysideGuiManager(QMainWindow):
 
         radio_width = 60
         self.left_radio = QRadioButton("Left", self)
-        self.left_radio.setFixedWidth(radio_width)
-
         self.center_radio = QRadioButton("Center", self)
-        self.center_radio.setFixedWidth(radio_width)
-
         self.right_radio = QRadioButton("Right", self)
-        self.right_radio.setFixedWidth(radio_width)
+        for radio in [self.left_radio, self.center_radio, self.right_radio]:
+            radio.setFixedWidth(radio_width)
 
         self.snap_group = QButtonGroup(self)
         self.snap_group.addButton(self.left_radio, 1)
         self.snap_group.addButton(self.center_radio, 0)
         self.snap_group.addButton(self.right_radio, 2)
 
-        if self.snap == 1:
-            self.left_radio.setChecked(True)
-        elif self.snap == 2:
-            self.right_radio.setChecked(True)
-        else:
-            self.center_radio.setChecked(True)
-
-        snap_l.addWidget(self.left_radio)
-        snap_l.addWidget(self.center_radio)
-        snap_l.addWidget(self.right_radio)
+        for radio in [self.left_radio, self.center_radio, self.right_radio]:
+            snap_l.addWidget(radio)
 
         img_l.addLayout(snap_l)
-
-        btn_layout.addLayout(img_l)
-
-        self.main_layout.addLayout(btn_layout)
+        self.main_layout.addLayout(img_l)
 
 
-
-        # Default selection (match startup)
-        if self.snap == 1:
-            self.left_radio.setChecked(True)
-        elif self.snap == 2:
-            self.right_radio.setChecked(True)
-        else:
-            self.center_radio.setChecked(True)
-
-
-
-    def _connect_callbacks(self):
-        self.apply_config_button.clicked.connect(_cb(self.callbacks, "apply_config"))
-        self.create_config_button.clicked.connect(_cb(self.callbacks, "create_config"))
-        self.delete_config_button.clicked.connect(_cb(self.callbacks, "delete_config"))
-        self.config_folder_button.clicked.connect(_cb(self.callbacks, "open_config_folder"))
-        self.reset_config_button.clicked.connect(_cb(self.callbacks, "apply_config"))
-        self.screenshot_button.clicked.connect(_cb(self.callbacks, "screenshot"))
-        self.image_download_button.clicked.connect(_cb(self.callbacks, "download_images"))
-        self.image_folder_button.clicked.connect(_cb(self.callbacks, "image_folder"))
-        self.snap_group.buttonToggled.connect(self._on_snap_toggle)
-        self.toggle_compact_button.clicked.connect(_cb(self.callbacks, "toggle_compact"))
-        self.detect_config_button.clicked.connect(_cb(self.callbacks, "detect_config"))
+    def _connect_callbacks(self)->None:
+        self.apply_config_button.clicked.connect(
+            _cb(self.callbacks, "apply_config"))
+        self.create_config_button.clicked.connect(
+            _cb(self.callbacks, "create_config"))
+        self.delete_config_button.clicked.connect(
+            _cb(self.callbacks, "delete_config"))
+        self.config_folder_button.clicked.connect(
+            _cb(self.callbacks, "open_config_folder"))
+        self.reset_config_button.clicked.connect(
+            _cb(self.callbacks, "apply_config"))
+        self.screenshot_button.clicked.connect(
+            _cb(self.callbacks, "screenshot"))
+        self.image_download_button.clicked.connect(
+            _cb(self.callbacks, "download_images"))
+        self.image_folder_button.clicked.connect(
+            _cb(self.callbacks, "image_folder"))
+        self.snap_group.buttonToggled.connect(
+            self._on_snap_toggle)
+        self.toggle_compact_button.clicked.connect(
+            _cb(self.callbacks, "toggle_compact"))
+        self.detect_config_button.clicked.connect(
+            _cb(self.callbacks, "detect_config"))
+        self.aot_button.clicked.connect(
+            _cb(self.callbacks, "toggle_AOT"))
 
 
 
     # ------------- Theme & toggles -------------
 
-    def _apply_theme(self):
+    def _apply_theme(self)->None:
         self.setStyleSheet(f"""
-            QWidget {{ background: {self.colors.BACKGROUND}; color: {self.colors.TEXT_NORMAL}; padding: 0px; border: 0px solid {self.colors.BORDER_COLOR};}}
-            QFrame {{ background: {self.colors.BACKGROUND}; padding: 0px; border: 0px solid {self.colors.BORDER_COLOR};}}
+            QWidget {{
+                background: {self.colors.BACKGROUND};
+                color: {self.colors.TEXT_NORMAL};
+                padding: 0px;
+                border: 0px solid {self.colors.BORDER_COLOR};
+                }}
+            QFrame {{
+                background: {self.colors.BACKGROUND};
+                padding: 0px;
+                border: 0px solid {self.colors.BORDER_COLOR};
+                }}
             QPushButton {{
                 background: {self.colors.BUTTON_NORMAL};
                 border-radius: 10px;
@@ -561,11 +615,15 @@ class PysideGuiManager(QMainWindow):
             }
             """)
         # Re-apply dynamic states after theme reset
-        self.format_apply_reset_button()
-        self.format_admin_button(self.is_admin)
+        self.format_apply_reset_button(selected_config_shortname=None)
+        self.format_admin_button(admin_enabled=self.is_admin)
 
 
-    def format_apply_reset_button(self, selected_config_shortname=None, disable=None):
+    def format_apply_reset_button(
+            self,
+            selected_config_shortname:str,
+            disable:int=0)->None:
+        """Set the state and color for apply and reset buttons."""
         if disable:
             self.apply_config_button.setDisabled(True)
             self.reset_config_button.setDisabled(True)
@@ -575,7 +633,11 @@ class PysideGuiManager(QMainWindow):
             self.apply_config_button.setDisabled(True)
             self.reset_config_button.setEnabled(True)
             self.info_label.setText(
-                f"Active: {selected_config_shortname if selected_config_shortname else self.applied_config}",
+                f"Active: {
+                    selected_config_shortname
+                    if selected_config_shortname
+                    else self.applied_config
+                    }",
             )
             self.aot_button.setEnabled(True)
         else:
@@ -586,9 +648,9 @@ class PysideGuiManager(QMainWindow):
             self.reapply = False
 
 
-    def format_admin_button(self, admin_enabled: bool):
+    def format_admin_button(self, *, admin_enabled: bool)->None:
+        """Set the state and color of the admin button based on app permission state."""
         if admin_enabled:
-            # Admin mode active → button looks active but disabled
             self.admin_button.setStyleSheet(f"""
                 QPushButton {{
                     background: {self.colors.BUTTON_ACTIVE};
@@ -608,7 +670,6 @@ class PysideGuiManager(QMainWindow):
             self.admin_button.setEnabled(False)
             self.admin_button.setText("Admin enabled")
         else:
-            # Admin mode inactive → normal style, enabled
             self.admin_button.setStyleSheet(f"""
                 QPushButton {{
                     background: {self.colors.BUTTON_NORMAL};
@@ -629,7 +690,8 @@ class PysideGuiManager(QMainWindow):
             self.admin_button.setText("Enable admin")
 
 
-    def invert_colors(self):
+    def invert_colors(self)->None:
+        """Invert all colors in the color list."""
         for attr in dir(self.colors):
             if attr.isupper():
                 value = getattr(self.colors, attr)
@@ -637,18 +699,18 @@ class PysideGuiManager(QMainWindow):
                     setattr(self.colors, attr, invert_hex_color(value))
 
 
-    def _on_theme_toggle(self, state: int):
+    def _on_theme_toggle(self, state: int)->None:
         # True -> light; False -> dark
         self.style_dark = not bool(state)
         self.invert_colors()
         self._apply_theme()
 
 
-    def _on_reapply_toggle(self, state: int):
+    def _on_reapply_toggle(self)->None:
         self.reapply = self.auto_apply_switch.isChecked()
 
 
-    def _on_details_toggle(self, _state: int):
+    def _on_details_toggle(self)->None:
         self.details = self.details_switch.isChecked()
         self.callback_manager.save_settings()
         if self.layout_frame:
@@ -656,7 +718,7 @@ class PysideGuiManager(QMainWindow):
             self.layout_frame.update()
 
 
-    def _on_images_toggle(self, _state: int):
+    def _on_images_toggle(self)->None:
         self.use_images = self.toggle_images_switch.isChecked()
         self.callback_manager.save_settings()
         if self.layout_frame:
@@ -664,7 +726,7 @@ class PysideGuiManager(QMainWindow):
             self.layout_frame.update()
 
 
-    def _on_snap_toggle(self, button):
+    def _on_snap_toggle(self, button:QRadioButton)->None:
         if button == self.left_radio:
             self.snap = 1
         elif button == self.center_radio:
@@ -675,29 +737,35 @@ class PysideGuiManager(QMainWindow):
         self.callback_manager.save_settings()
 
 
-    # Timer for auto reapply
-    def reapply_timer(self):
+    def reapply_timer(self)->None:
+        """Timer for auto reapply."""
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.callback_manager.start_auto_reapply)
         self.timer.start(500)
 
 
-    # ------------- Managed text (compact mode) -------------
-    def setup_managed_text(self):
+    def setup_managed_text(self)->None:
+        """Show or hide the managed windows frame for compact mode."""
         if not self.managed_frame.isVisible():
             self.managed_frame.setVisible(True)
-        # Label + Text already created; ensure heights
+
         self.managed_text.setFixedHeight(80)
 
 
-    # ------------- Layout frame population -------------
-    def set_layout_frame(self, windows: list[WindowInfo]):
+    def set_layout_frame(self, windows: list[WindowInfo])->None:
+        """Layout frame population."""
         self.layout_frame.windows = windows
         self.layout_frame.update()
 
 
-    # ------------- Create Config workflow -------------
-    def create_config_ui(self, parent, window_titles, save_callback, settings_callback, refresh_callback):
+    def create_config_ui(self,
+                         parent:object,
+                         window_titles:list[str],
+                         save_callback:Callable,
+                         settings_callback:Callable,
+                         refresh_callback:Callable,
+                         )->None:
+        """Create config popup window for creating configs."""
         dlg = ConfigDialog(
             parent,
             window_titles,
@@ -712,14 +780,23 @@ class PysideGuiManager(QMainWindow):
 
 
 
-# Create Config Dialog (two-step wizard)
-
 class ConfigDialog(QDialog):
-    def __init__(self, parent:object, window_titles:list, save_callback:Callable,
-                 settings_callback:Callable, refresh_callback:Callable,
-                 screen_width:int, screen_height:int, assets_dir:str,
-                 auto_align_layouts:dict, max_windows:int=4,
-                 )->None:
+    """Dialog for creating and configuring window layouts."""
+
+    def __init__(  # noqa: PLR0913
+        self,
+        parent: object,
+        window_titles: list,
+        save_callback: Callable,
+        settings_callback: Callable,
+        refresh_callback: Callable,
+        screen_width: int,
+        screen_height: int,
+        assets_dir: str,
+        auto_align_layouts: dict,
+        max_windows: int = 4,
+    ) -> None:
+        """Initialize the dialog with window selection and settings callbacks."""
         super().__init__(parent)
         self.setWindowTitle("Create Config")
         self.resize(800, 600)
@@ -745,7 +822,7 @@ class ConfigDialog(QDialog):
         # --- Selection stage (Stage 1) ---
         self.selection_area = QWidget()
         sel_layout = QVBoxLayout(self.selection_area)
-        sel_layout.addWidget(QLabel("Select windows (max %d):" % self.max_windows))
+        sel_layout.addWidget(QLabel(f"Select windows ({self.max_windows}):"))
 
         self.switches = {}
         for raw_title in self.window_titles:
@@ -758,40 +835,48 @@ class ConfigDialog(QDialog):
         confirm_btn.clicked.connect(self.confirm_selection)
         sel_layout.addWidget(confirm_btn)
 
-        self.selection_area.adjustSize()   # scale to content
+        self.selection_area.adjustSize()
         main_layout.addWidget(self.selection_area)
 
         self.setLayout(main_layout)
-        self.adjustSize()   # make the dialog shrink/grow to contents
-        self.setSizeGripEnabled(True)  # allow resizing manually
-
+        self.adjustSize()
+        self.setSizeGripEnabled(True)
 
         # Stage 2 and 3 containers
         self.settings_area = None
         self.save_area = None
 
-    def confirm_selection(self):
+
+    def confirm_selection(self) -> None:
+        """Validate selected windows and move to settings stage."""
         selected = [t for t, cb in self.switches.items() if cb.isChecked()]
         if not selected:
             QMessageBox.critical(self, "Error", "No windows selected")
             return
         if len(selected) > self.max_windows:
-            QMessageBox.critical(self, "Error", f"Select up to {self.max_windows} windows only")
+            QMessageBox.critical(
+                self, "Error", f"Select up to {self.max_windows} windows only",
+            )
             return
 
-        # Switch to settings view
         self.selection_area.hide()
         sorted_windows = sorted(
-                selected,
-                key=lambda title: int((self.settings_callback(title) or {}).get("position", "0,0").split(",")[0]),
-            )
+            selected,
+            key=lambda title: int(
+                (self.settings_callback(title) or {})
+                .get("position", "0,0")
+                .split(",")[0],
+            ),
+        )
         self.show_config_settings(sorted_windows)
 
-    def show_config_settings(self, sorted_windows):
+
+    def show_config_settings(self, sorted_windows: list) -> None:
+        """Display settings rows, controls, and layout preview for selected windows."""
         self.settings_area = QWidget()
         settings_layout = QVBoxLayout(self.settings_area)
 
-        # --- Rows container (fixed height) ---
+        # Rows container
         rows_container = QWidget()
         rows_layout = QVBoxLayout(rows_container)
         rows_layout.setContentsMargins(0, 0, 0, 0)
@@ -806,7 +891,7 @@ class ConfigDialog(QDialog):
 
         settings_layout.addWidget(rows_container, stretch=0)
 
-        # --- Controls (fixed height) ---
+        # Controls
         controls = QHBoxLayout()
         auto_btn = QPushButton("Auto align")
         update_btn = QPushButton("Update drawing")
@@ -819,13 +904,16 @@ class ConfigDialog(QDialog):
         auto_btn.clicked.connect(lambda: self.auto_position(sorted_windows))
         update_btn.clicked.connect(self.update_layout_frame)
 
-        # --- Layout preview (expands on resize) ---
+        # Layout preview
         self.layout_container = QWidget()
-        self.layout_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.layout_container_layout = QVBoxLayout(self.layout_container)   # <— fix
+        self.layout_container.setSizePolicy(
+            QSizePolicy.Expanding,
+            QSizePolicy.Expanding,
+            )
+        self.layout_container_layout = QVBoxLayout(self.layout_container)
         settings_layout.addWidget(self.layout_container, stretch=1)
 
-        # --- Save area (fixed height) ---
+        # Save area
         self.save_area = QWidget()
         save_layout = QHBoxLayout(self.save_area)
         save_layout.addWidget(QLabel("Config Name:"))
@@ -834,7 +922,6 @@ class ConfigDialog(QDialog):
         save_btn = QPushButton("Save Config")
         save_layout.addWidget(save_btn)
         save_btn.clicked.connect(self.on_save)
-
         settings_layout.addWidget(self.save_area, stretch=0)
 
         self.layout().addWidget(self.settings_area)
@@ -844,9 +931,11 @@ class ConfigDialog(QDialog):
 
         self.update_layout_frame()
 
-    def gather_windows(self):
+
+    def gather_windows(self)->list:
+        """Get windows for the layout preview."""
         windows = []
-        for title, row in self.settings_rows.items():
+        for row in self.settings_rows.values():
             vals = row.get_values()
             pos_x, pos_y = self.validate_int_pair(vals["position"])
             size_w, size_h = self.validate_int_pair(vals["size"])
@@ -857,7 +946,9 @@ class ConfigDialog(QDialog):
             ))
         return windows
 
-    def update_layout_frame(self):
+
+    def update_layout_frame(self)->None:
+        """Update the layout preview."""
         windows = self.gather_windows()
         if self.layout_preview:
             self.layout_preview.setParent(None)
@@ -867,7 +958,14 @@ class ConfigDialog(QDialog):
         )
         self.layout_container_layout.addWidget(self.layout_preview)
 
-    def update_row(self, title, pos=None, size=None, aot=None, titlebar=None):
+
+    def update_row(self,
+                   title:str,
+                   pos:int|None=None,
+                   size:int|None=None,
+                   aot:int|None=None,
+                   titlebar:int|None=None,
+                   )->None:
         """Update a WindowSettingsRow without overwriting unchanged values."""
         row = self.settings_rows[title]
         vals = row.get_values()
@@ -880,187 +978,271 @@ class ConfigDialog(QDialog):
             titlebar=titlebar if titlebar is not None else vals["titlebar"],
         )
 
-    def auto_position(self, sorted_windows):
+
+    def auto_position(self, sorted_windows:list)->None:
+        """Automatically set window configuration based on presets."""
         screen_width = self.screen_width
         screen_height = self.screen_height
         taskbar_height = UIConstants.TASKBAR_HEIGHT
         usable_height = screen_height - taskbar_height
 
         if len(sorted_windows) not in self.auto_align_layouts:
-            in_defaults = "" if len(sorted_windows) not in LayoutDefaults.DEFAULT_LAYOUTS else " Try to reset to defaults."
-            self.ratio_label.setText(f"No auto-alignment available for {len(sorted_windows)} windows. {in_defaults}")
+            in_defaults = (
+                "" if len(sorted_windows) not in LayoutDefaults.DEFAULT_LAYOUTS
+                else " Try to reset to defaults."
+                )
+            self.ratio_label.setText(
+                f"No auto-alignment available for {len(sorted_windows)} windows. "
+                f"{in_defaults}")
             return
         layout_configs = self.auto_align_layouts[len(sorted_windows)]
         layout_max = len(layout_configs) - 1
-
-        side_text = ""
 
         two = 2
         three = 3
         four = 4
 
-        # 4 windows
+        self.preset_label_text = f"Preset {self.layout_number + 1}/{layout_max + 1}\t"
+
+        # Four windows
         if len(sorted_windows) == four:
-            layout = layout_configs[self.layout_number]
-
-            for i, ((rel_x, rel_y), (rel_w, rel_h)) in enumerate(layout):
-                x = int(rel_x * screen_width)
-                y = int(rel_y * usable_height)
-                w = int(rel_w * screen_width)
-                h = int(rel_h * usable_height)
-
-                self.update_row(sorted_windows[i], pos=f"{x},{y}", size=f"{w},{h}")
-
-            # Set name using all rows
-            config_name = "_".join(
-                self.settings_rows[title].get_values()["name"] for title in sorted_windows
-            )
-            self.config_name_edit.setText(f"{config_name}_Grid{self.layout_number + 1}")
-
-        # 3 windows
-        elif len(sorted_windows) == three:
-            numerator, denominator, weight_1 = layout_configs[self.layout_number]
-            weight_1 = Fraction(weight_1)
-            if not (0 <= weight_1 <= 1):
-                print(f"Invalid weight_1: {weight_1}. Resetting to 1/2.")
-                weight_1 = Fraction(1, 2)
-            weight_2 = 1 - weight_1
-            ratio = Fraction(numerator, denominator)
-
-            aux_width = screen_width - (screen_height * ratio)
-            left_width = aux_width * weight_1
-            center_width = screen_height * ratio
-            right_width = aux_width * weight_2
-
-            positions = [
-                (0, 0, left_width, usable_height),
-                (left_width, 0, center_width, screen_height),
-                (left_width + center_width, 0, right_width, usable_height),
-            ]
-
-            for (x, y, w, h), title in zip(positions, sorted_windows, strict=False):
-                self.update_row(
-                    title,
-                    pos=f"{int(x)},{int(y)}",
-                    size=f"{int(w)},{int(h)}",
-                    )
-
-            # middle window override
-            self.update_row(sorted_windows[1], aot=True, titlebar=False)
-
-            clean_title = clean_window_title(
-                sorted_windows[1],
-                sanitize=True,
-                titlecase=True,
+            self._position_four_windows(
+                layout_configs,
+                screen_width,
+                screen_height,
+                usable_height,
+                sorted_windows,
                 )
-            self.config_name_edit.setText(
-                f"{clean_title} ({numerator}-{denominator})(L_{weight_1.numerator}-"
-                f"{weight_1.denominator})(R_{weight_2.numerator}-{weight_2.denominator})",
-            )
 
-        # 2 windows
-        elif len(sorted_windows) == two:
-            numerator, denominator, side = layout_configs[self.layout_number]
-            ratio = Fraction(numerator, denominator)
-
-            left_x = 0
-            aot = 1 if side in ("R", "CL") else 0
-
-            if side == "R":
-                side_text = "Right"
-                right_width = screen_height * ratio
-                left_width = screen_width - right_width
-            elif side == "L":
-                side_text = "Left"
-                left_width = screen_height * ratio
-                right_width = screen_width - left_width
-            elif side == "CL":
-                side_text = "Center Left"
-                right_width = screen_height * ratio
-                left_width = (screen_width / 2) - (right_width / 2)
-            elif side == "CR":
-                side_text = "Center Right"
-                left_width = screen_height * ratio
-                right_width = (screen_width / 2) - (left_width / 2)
-                left_x = right_width
-            else:
-                print("Invalid position value")
-                left_width = right_width = 0
-
-            left_height = right_height = screen_height if side in ("R", "L") else usable_height
-            if side == "CL": right_height = screen_height
-            if side == "CR": left_height = screen_height
-
-            right_x = left_x + left_width if side == "CR" else left_width
-
-            self.update_row(sorted_windows[0], pos=f"{int(left_x)},0",
-                            size=f"{int(left_width)},{int(left_height)}",
-                            aot=(aot == 0), titlebar=(aot != 0))
-
-            self.update_row(sorted_windows[1], pos=f"{int(right_x)},0",
-                            size=f"{int(right_width)},{int(right_height)}",
-                            aot=(aot == 1), titlebar=(aot != 1))
-
-            self.config_name_edit.setText(
-                f"{self.settings_rows[sorted_windows[aot]].get_values()['name']} {side}_{numerator}-{denominator}",
-            )
-
-        else:
-            numerator, denominator, side = layout_configs[self.layout_number]
-            ratio = Fraction(numerator, denominator)
-
-            x = 0
-            window_width = screen_height * ratio
-
-            if side == "R":
-                side_text = "Right"
-                x = screen_width - window_width
-            elif side == "L":
-                side_text = "Left"
-                x = 0
-            elif side == "C":
-                side_text = "Center"
-                x = (screen_width / 2) - (window_width / 2)
-            else:
-                side_text = "Fullscreen"
-
-            for title in sorted_windows:
-                self.update_row(title, pos=f"{int(x)},0",
-                                size=f"{int(window_width)},{int(screen_height)}",
-                                aot=True, titlebar=False)
-
-            self.config_name_edit.setText(
-                f"{self.settings_rows[sorted_windows[0]].get_values()['name']} {side}_{numerator}-{denominator}",
-            )
-
-        preset_label_text = f"Preset {self.layout_number + 1}/{layout_max + 1}\t"
-
-        if len(sorted_windows) == four:
-            self.ratio_label.setText(
-                f"{preset_label_text} ",
-            )
+        # Three windows
         elif len(sorted_windows) == three:
-            self.ratio_label.setText(
-                f"{preset_label_text}"
-                f"Aspect: {numerator}/{denominator} "
-                f"Left {weight_1.numerator}/{weight_1.denominator} Right {weight_2.numerator}/{weight_2.denominator}",
-            )
-        elif len(sorted_windows) == two:
-            self.ratio_label.setText(
-                f"{preset_label_text}"
-                f"{side_text:10} {numerator}/{denominator}",
-            )
-        else:
-            self.ratio_label.setText(
-                f"{preset_label_text}"
-                f"{side_text:10} {numerator}/{denominator}",
+            self._position_three_windows(
+                layout_configs,
+                screen_width,
+                screen_height,
+                usable_height,
+                sorted_windows,
             )
 
-        self.layout_number = 0 if self.layout_number >= layout_max else self.layout_number + 1
+        # Two windows
+        elif len(sorted_windows) == two:
+            self._position_two_windows(
+                layout_configs,
+                screen_width,
+                screen_height,
+                usable_height,
+                sorted_windows,
+            )
+
+        # One window
+        else:
+            self._position_one_window(
+                layout_configs,
+                screen_width,
+                screen_height,
+                usable_height,
+                sorted_windows,
+            )
+
+        self.layout_number = (
+            0 if self.layout_number >= layout_max else self.layout_number + 1
+            )
         self.update_layout_frame()
 
-    def on_save(self):
-        config_data = {title: row.get_values() for title, row in self.settings_rows.items()}
+
+    def _position_four_windows(self,
+                           layout_configs:list,
+                           screen_width:int,
+                           screen_height:int,
+                           usable_height:int,
+                           sorted_windows:list,
+                           )->None:
+        layout = layout_configs[self.layout_number]
+        _screen_height = screen_height
+        for i, ((rel_x, rel_y), (rel_w, rel_h)) in enumerate(layout):
+            x = int(rel_x * screen_width)
+            y = int(rel_y * usable_height)
+            w = int(rel_w * screen_width)
+            h = int(rel_h * usable_height)
+
+            self.update_row(sorted_windows[i], pos=f"{x},{y}", size=f"{w},{h}")
+
+        # Set name using all rows
+        config_name = "_".join(
+            self.settings_rows[title].get_values()["name"]
+            for title in sorted_windows
+        )
+        self.config_name_edit.setText(f"{config_name}_Grid{self.layout_number + 1}")
+
+        self.ratio_label.setText(f"{self.preset_label_text} ")
+
+
+    def _position_three_windows(self,
+                           layout_configs:list,
+                           screen_width:int,
+                           screen_height:int,
+                           usable_height:int,
+                           sorted_windows:list,
+                           )->None:
+        numerator, denominator, weight_1 = layout_configs[self.layout_number]
+        weight_1 = Fraction(weight_1)
+        if not (0 <= weight_1 <= 1):
+            weight_1 = Fraction(1, 2)
+        weight_2 = 1 - weight_1
+        ratio = Fraction(numerator, denominator)
+
+        aux_width = screen_width - (screen_height * ratio)
+        left_width = aux_width * weight_1
+        center_width = screen_height * ratio
+        right_width = aux_width * weight_2
+
+        positions = [
+            (0, 0, left_width, usable_height),
+            (left_width, 0, center_width, screen_height),
+            (left_width + center_width, 0, right_width, usable_height),
+        ]
+
+        for (x, y, w, h), title in zip(positions, sorted_windows, strict=False):
+            self.update_row(
+                title,
+                pos=f"{int(x)},{int(y)}",
+                size=f"{int(w)},{int(h)}",
+                )
+
+        # middle window override
+        self.update_row(sorted_windows[1], aot=True, titlebar=False)
+
+        clean_title = clean_window_title(
+            sorted_windows[1],
+            sanitize=True,
+            titlecase=True,
+            )
+
+        self.config_name_edit.setText(
+            f"{clean_title} ({numerator}-{denominator})(L_{weight_1.numerator}-"
+            f"{weight_1.denominator})(R_{weight_2.numerator}-{weight_2.denominator})",
+        )
+
+        self.ratio_label.setText(
+            f"{self.preset_label_text}"
+            f"Aspect: {numerator}/{denominator} "
+            f"Left {weight_1.numerator}/{weight_1.denominator} "
+            f"Right {weight_2.numerator}/{weight_2.denominator}",
+        )
+
+
+    def _position_two_windows(self,
+                           layout_configs:list,
+                           screen_width:int,
+                           screen_height:int,
+                           usable_height:int,
+                           sorted_windows:list,
+                           )->None:
+        numerator, denominator, side = layout_configs[self.layout_number]
+        ratio = Fraction(numerator, denominator)
+
+        left_x = 0
+        aot = 1 if side in ("R", "CL") else 0
+
+        side_text = ""
+        if side == "R":
+            side_text = "Right"
+            right_width = screen_height * ratio
+            left_width = screen_width - right_width
+        elif side == "L":
+            side_text = "Left"
+            left_width = screen_height * ratio
+            right_width = screen_width - left_width
+        elif side == "CL":
+            side_text = "Center Left"
+            right_width = screen_height * ratio
+            left_width = (screen_width / 2) - (right_width / 2)
+        elif side == "CR":
+            side_text = "Center Right"
+            left_width = screen_height * ratio
+            right_width = (screen_width / 2) - (left_width / 2)
+            left_x = right_width
+        else:
+            left_width = right_width = 0
+
+        left_height = right_height = (
+            screen_height if side in ("R", "L") else usable_height
+            )
+
+        if side == "CL":
+            right_height = screen_height
+        elif side == "CR":
+            left_height = screen_height
+
+        right_x = left_x + left_width if side == "CR" else left_width
+
+        self.update_row(sorted_windows[0], pos=f"{int(left_x)},0",
+                        size=f"{int(left_width)},{int(left_height)}",
+                        aot=(aot == 0), titlebar=(aot != 0))
+
+        self.update_row(sorted_windows[1], pos=f"{int(right_x)},0",
+                        size=f"{int(right_width)},{int(right_height)}",
+                        aot=(aot == 1), titlebar=(aot != 1))
+
+        self.config_name_edit.setText(
+            f"{self.settings_rows[sorted_windows[aot]].get_values()['name']} "
+            f"{side}_{numerator}-{denominator}",
+        )
+
+        self.ratio_label.setText(
+            f"{self.preset_label_text}"
+            f"{side_text:10} {numerator}/{denominator}",
+        )
+
+
+    def _position_one_window(self,
+                           layout_configs:list,
+                           screen_width:int,
+                           screen_height:int,
+                           usable_height:int,
+                           sorted_windows:list,
+                           )->None:
+        _usable_height = usable_height
+        numerator, denominator, side = layout_configs[self.layout_number]
+        ratio = Fraction(numerator, denominator)
+
+        x = 0
+        window_width = screen_height * ratio
+        side_text = ""
+
+        if side == "R":
+            side_text = "Right"
+            x = screen_width - window_width
+        elif side == "L":
+            side_text = "Left"
+            x = 0
+        elif side == "C":
+            side_text = "Center"
+            x = (screen_width / 2) - (window_width / 2)
+        else:
+            side_text = "Fullscreen"
+
+        for title in sorted_windows:
+            self.update_row(title, pos=f"{int(x)},0",
+                            size=f"{int(window_width)},{int(screen_height)}",
+                            aot=True, titlebar=False)
+
+        self.config_name_edit.setText(
+            f"{self.settings_rows[sorted_windows[0]].get_values()['name']} "
+            f"{side}_{numerator}-{denominator}",
+        )
+
+        self.ratio_label.setText(
+            f"{self.preset_label_text}"
+            f"{side_text:10} {numerator}/{denominator}",
+        )
+
+
+    def on_save(self)->None:
+        """"Save the config to file."""
+        config_data = {
+            title: row.get_values() for title, row in self.settings_rows.items()
+            }
         name = self.config_name_edit.text().strip()
         if not name:
             QMessageBox.critical(self, "Error", "Config name is required")
@@ -1070,16 +1252,24 @@ class ConfigDialog(QDialog):
                 self.refresh_callback(name)
             self.accept()
 
+
     @staticmethod
-    def validate_int_pair(value, default=(0, 0)):
+    def validate_int_pair(value:str, default:int=(0, 0))->tuple[int,int]:
+        """Check if int pair is valid."""
         try:
             x, y = map(int, value.split(","))
-            return x, y
-        except Exception:
+        except ValueError:
             return default
+        else:
+            return x, y
+
+
 
 class WindowSettingsRow(QWidget):
-    def __init__(self, title, values):
+    """Create a row for the create config settings window."""
+
+    def __init__(self, title:str, values:list)->None:
+        """Initialize variables."""
         super().__init__()
         layout = QHBoxLayout(self)
 
@@ -1112,15 +1302,18 @@ class WindowSettingsRow(QWidget):
         layout.addWidget(self.aot_cb)
         layout.addWidget(self.titlebar_cb)
 
-    def to_bool(self, val):
+
+    def to_bool(self, val:str)->bool:
+        """Convert a string value to bool."""
         if isinstance(val, bool):
             return val
         if isinstance(val, str):
             return val.lower() in ("1", "true", "yes", "on")
         return bool(val)
 
-    def get_values(self):
-        """Return dict in same format as CTk version."""
+
+    def get_values(self)->dict:
+        """Return dict with window values."""
         return {
             "name": self.name_edit.text().strip(),
             "position": self.pos_edit.text(),
@@ -1129,7 +1322,15 @@ class WindowSettingsRow(QWidget):
             "titlebar": self.titlebar_cb.isChecked(),
         }
 
-    def set_values(self, name = str, pos = [int, int], size = [int, int], aot = bool, titlebar = bool):
+
+    def set_values(self,
+                   name:str,
+                   pos:list[int, int],
+                   size:list[int, int],
+                   aot:int,
+                   titlebar:int,
+                   )->None:
+        """Update the settings row values."""
         self.name_edit.setText(name)
         self.pos_edit.setText(pos)
         self.size_edit.setText(size)
@@ -1138,10 +1339,18 @@ class WindowSettingsRow(QWidget):
 
 
 
-# Create screen preview
-
 class ScreenLayoutWidget(QWidget):
-    def __init__(self, parent, screen_width, screen_height, windows, assets_dir, window_details=True):
+    """Layout preview widget."""
+
+    def __init__(self,  # noqa: PLR0913
+                 parent:object,
+                 screen_width:int,
+                 screen_height:int,
+                 windows:list[str],
+                 assets_dir:str,
+                 window_details:int=1,
+                 ) -> None:
+        """"Set up base variables."""
         super().__init__(parent)
         self.parent = parent
         self.colors = self.parent.colors
@@ -1160,35 +1369,35 @@ class ScreenLayoutWidget(QWidget):
         self.line_height = 15
 
 
-
-    def set_window_details(self, value: bool):
-        self.window_details = value
-        self.update()
-
-    def paintEvent(self, event):
+    def paintEvent(self, event:None)->None:  # noqa: N802
+        """Override for paintEvent."""
+        _event = event
         painter = QPainter(self)
         self.draw_layout(painter, self.width(), self.height())
 
-    def wheelEvent(self, event):
-        combo = self.parent.combo_box
-        delta = event.angleDelta().y()
-        current = combo.currentIndex()
 
-        if delta > 0:  # scroll up
-            new_index = max(0, current - 1)
-        else:          # scroll down
-            new_index = min(combo.count() - 1, current + 1)
+    def wheelEvent(self, event:None) -> None:  # noqa: N802
+        """Override for wheelEvent."""
+        try:
+            combo = self.parent.combo_box
+            delta = event.angleDelta().y()
+            current = combo.currentIndex()
 
-        combo.setCurrentIndex(new_index)
+            if delta > 0:  # scroll up
+                new_index = max(0, current - 1)
+            else:          # scroll down
+                new_index = min(combo.count() - 1, current + 1)
+
+            combo.setCurrentIndex(new_index)
+        except AttributeError:
+            pass
 
 
-    # Draw the layout preview
-
-    def draw_layout(self, painter, width, height):
+    def draw_layout(self, painter:object, width:int, height:int) -> None:
+        """Draw the layout preview."""
         painter.fillRect(0, 0, width, height, QColor(self.colors.BACKGROUND))
 
         frame_width = 15
-        edge_gap = 10
         padding = frame_width / 2
 
         drawable_height = height - frame_width * 2
@@ -1255,17 +1464,36 @@ class ScreenLayoutWidget(QWidget):
         corner_radius = 10
         painter.drawRoundedRect(frame_rect, corner_radius, corner_radius)
 
-    def draw_window(self, painter, x_offset, y_offset, win, scale):
+
+    def draw_window(self,
+                    painter:object,
+                    x_offset:int,
+                    y_offset:int,
+                    win:object,
+                    scale:float,
+                    ) -> None:
+        """Draw a window representation."""
         x = x_offset + win.pos_x * scale
         y = y_offset + win.pos_y * scale
         w = win.width * scale
         h = win.height * scale
 
-        painter.setRenderHint(QPainter.Antialiasing, False)
+        draw_params = {
+            "painter": painter,
+            "x": x,
+            "y": y,
+            "w": w,
+            "h": h,
+            "win": win,
+            }
+
+        painter.setRenderHint(QPainter.Antialiasing, on=False)
 
         # Fill color
-        fill_color = QColor(Colors.WINDOW_ALWAYS_ON_TOP if win.always_on_top else Colors.WINDOW_NORMAL)
-        fill_color.setAlpha(255)  # fully opaque
+        fill_color = QColor(
+            Colors.WINDOW_ALWAYS_ON_TOP if win.always_on_top else Colors.WINDOW_NORMAL,
+            )
+        fill_color.setAlpha(255)
 
         # Draw window with border
         pen = QPen(QColor(Colors.WINDOW_BORDER))
@@ -1276,21 +1504,30 @@ class ScreenLayoutWidget(QWidget):
 
         # Draw images if enabled
         if self.use_images:
-            self.draw_images(painter, x, y, w, h, win, scale)
+            self.draw_images(draw_params)
         else:
             for lbl in self.link_labels.values():
                 lbl.hide()
 
         # Draw window text
-        self.draw_text(painter, x, y, w, h, win)
+        self.draw_text(draw_params)
 
-    def draw_text(self, painter, x, y, w, h, win):
+
+    def draw_text(self, draw_params:dict) -> None:
+        """Draw the window information text."""
+        win = draw_params["win"]
+        painter = draw_params["painter"]
+        x = draw_params["x"]
+        y = draw_params["y"]
+        w = draw_params["w"]
+        h = draw_params["h"]
+        aot_text = "Yes" if win.always_on_top else "No"
         info_lines = [
             win.search_title or win.name,
             f"Pos: {win.pos_x}, {win.pos_y}" if self.window_details else "",
             f"Size: {win.width} x {win.height}" if self.window_details else "",
-            f"AOT: {'Yes' if win.always_on_top else 'No'}" if self.window_details else "",
-        ]
+            f"AOT: {aot_text}" if self.window_details else "",
+            ]
         padding_x = 4
         padding_y = 2
 
@@ -1328,14 +1565,24 @@ class ScreenLayoutWidget(QWidget):
             painter.setPen(QColor(Colors.TEXT_ERROR))
             painter.drawText(int(x + w/2), int(y + 10), "Missing")
 
-    def draw_images(self, painter, x, y, w, h, win, scale):
+
+    def draw_images(self, draw_params:dict) -> None:
+        """Draw screenshot images."""
+        win = draw_params["win"]
+        painter = draw_params["painter"]
+        x = draw_params["x"]
+        y = draw_params["y"]
+        w = draw_params["w"]
+        h = draw_params["h"]
         image_paths = [
-            os.path.join(self.assets_dir, f"{win.search_title.replace(' ', '_').replace(':', '')}.jpg"),
-            os.path.join(self.assets_dir, f"{win.search_title.replace(' ', '_').replace(':', '')}.png"),
+            Path(self.assets_dir,
+                 f"{win.search_title.replace(' ', '_').replace(':', '')}.jpg"),
+            Path(self.assets_dir,
+                 f"{win.search_title.replace(' ', '_').replace(':', '')}.png"),
         ]
 
         for image_path in image_paths:
-            if os.path.exists(image_path):
+            if Path.exists(image_path):
                 # stretch
                 pixmap = QPixmap(image_path).scaled(
                     int(w), int(h),
@@ -1350,19 +1597,26 @@ class ScreenLayoutWidget(QWidget):
                         label = QLabel(self)
                         label.setOpenExternalLinks(True)
                         label.setTextInteractionFlags(Qt.TextBrowserInteraction)
-                        label.setStyleSheet(f"font: {Fonts.TEXT_SMALL}px; color: #1a73e8; background: transparent;")
+                        label.setStyleSheet(
+                            f"font: {Fonts.TEXT_SMALL}px; "
+                            f"color: #1a73e8; background: transparent;")
                         self.link_labels[win.search_title] = label
                     else:
                         label = self.link_labels[win.search_title]
 
-                    link_text = f'Image source {getattr(win, "source", "")}: <a href="{win.source_url}">{win.source_url}</a>'
+                    link_text = (
+                        f'Image source {getattr(win, "source", "")}: '
+                        f'<a href="{win.source_url}">{win.source_url}</a>'
+                        )
                     label.setText(link_text)
                     label.adjustSize()
 
                     # place label relative to the current window
-                    label.move(int(x + (w - label.width()) / 2), int(y + h - label.height() - 5))
+                    label.move(
+                        int(x + (w - label.width()) / 2),
+                        int(y + h - label.height() - 5),
+                        )
                     label.show()
                     self.active_labels.add(win.search_title)
-
 
 

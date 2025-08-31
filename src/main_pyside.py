@@ -18,11 +18,8 @@ def load_pyside_gui()->None:
 
     # Main window
     win = PysideGuiManager(
-        compact=compact,
+        initial_states=initial_states,
         is_admin=is_admin,
-        use_images=use_images,
-        snap=snap_side,
-        details=details,
         config_manager=config_manager,
         asset_manager=asset_manager,
     )
@@ -64,5 +61,11 @@ if __name__ == "__main__":
 
     # Load config
     compact, use_images, snap_side , details = config_manager.load_settings()
+    initial_states = {
+        "compact": compact,
+        "use_images": use_images,
+        "snap_side": snap_side,
+        "details": details,
+        }
 
     load_pyside_gui()

@@ -19,8 +19,6 @@ from utils import clean_window_title
 class ConfigManager:
     """Configuration manager."""
 
-    section = "Layouts"
-
     def __init__(self, base_path:str|None)->None:
         """Initialize variables."""
         self.base_path = base_path
@@ -31,47 +29,44 @@ class ConfigManager:
         self.settings_file = Path(self.settings_dir, "settings.json")
         self.layout_config_file = Path(self.settings_dir, "layout_config.ini")
 
+        self.default_layouts = {
+            1: LayoutDefaults.ONE_WINDOW,
+            2: LayoutDefaults.TWO_WINDOWS,
+            3: LayoutDefaults.THREE_WINDOWS,
+            4: LayoutDefaults.FOUR_WINDOWS,
+            }
+
         # Create directories if they don't exist
         if not Path.exists(self.config_dir):
             Path.mkdir(self.config_dir, parents=True)
         if not Path.exists(self.settings_dir):
             Path.mkdir(self.settings_dir, parents=True)
 
-    @staticmethod
-    def serialize(layouts: dict) -> configparser.ConfigParser:
-        """."""
-        config = configparser.ConfigParser()
-        config[ConfigManager.section] = {}
 
-        for key, entries in layouts.items():
-            config[ConfigManager.section][str(key)] = repr(entries)
-        return config
-
-    @staticmethod
-    def deserialize(config: configparser.ConfigParser) -> dict:
-        """."""
-        layouts = {}
-        if ConfigManager.section not in config:
-            return LayoutDefaults.DEFAULT_LAYOUTS
-
-        for key in config[ConfigManager.section]:
-            layouts[int(key)] = ast.literal_eval(config[ConfigManager.section][key])
-        return layouts
-
-    @staticmethod
-    def load_or_create_layouts(path:str, *, reset:bool=False) -> dict:
+    def load_or_create_layouts(self, path:str, *, reset:bool=False) -> dict:
         """Create new config file with defaults."""
+        section = "Layouts"
         if reset or not Path.exists(path):
-            config = ConfigManager.serialize(LayoutDefaults.DEFAULT_LAYOUTS)
+            config = configparser.ConfigParser()
+            config[section] = {}
+
+            for key, entries in self.default_layouts.items():
+                config[section][str(key)] = repr(entries)
             with Path.open(path, "w") as f:
                 config.write(f)
-            return LayoutDefaults.DEFAULT_LAYOUTS
+            return self.default_layouts
 
         # Load config file
         if Path.exists(path):
             config = configparser.ConfigParser()
             config.read(path)
-            return ConfigManager.deserialize(config)
+            layouts = {}
+            if section not in config:
+                return self.default_layouts
+
+            for key in config[section]:
+                layouts[int(key)] = ast.literal_eval(config[section][key])
+            return layouts
         return None
 
 
@@ -211,7 +206,7 @@ class ConfigManager:
 
         validated_config = self.validate_and_repair_config(config)
 
-        if not Path.isdir(self.config_dir):
+        if not Path.is_dir(self.config_dir):
             return False
 
         config_path = Path(self.config_dir, f"config_{config_name}.ini")

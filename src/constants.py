@@ -59,46 +59,47 @@ class LayoutDefaults:
 
     FOUR_WINDOWS = (
         # layout 0: four equal horizontal windows
-        [
+        (
             ((0, 0), (1/4, 1)),
             ((1/4, 0), (1/4, 1)),
             ((1/2, 0), (1/4, 1)),
             ((3/4, 0), (1/4, 1)),
-         ],
+        ),
 
         # layout 1: 1 & 2 stacked left half, 3 & 4 side-by-side on right half
-        [
+        (
             ((0, 0), (1/2, 1/2)),
             ((0, 1/2), (1/2, 1/2)),
             ((1/2, 0), (1/4, 1)),
             ((3/4, 0), (1/4, 1)),
-        ],
+        ),
 
         # layout 2: 1 & 2 side-by-side left half, 3 & 4 stacked right half
-        [
+        (
             ((0, 0), (1/4, 1)),
             ((1/4, 0), (1/4, 1)),
             ((1/2, 0), (1/2, 1/2)),
             ((1/2, 1/2), (1/2, 1/2)),
-        ],
+        ),
 
         # layout 3: four equally sized 2x2 grid
-        [
+        (
             ((0, 0), (1/2, 1/2)),
             ((1/2, 0), (1/2, 1/2)),
             ((0, 1/2), (1/2, 1/2)),
             ((1/2, 1/2), (1/2, 1/2)),
-        ],
+        ),
     )
+
 
 class UIConstants:
     """GUI constant values."""
 
     # Window dimensions
-    WINDOW_WIDTH = 850
+    WINDOW_WIDTH = 810
     WINDOW_HEIGHT = 530
-    WINDOW_MIN_WIDTH = 680
-    WINDOW_MIN_HEIGHT = 480
+    WINDOW_MIN_WIDTH = 700
+    WINDOW_MIN_HEIGHT = 500
 
     SETTINGS_WIDTH = 900
     SETTINGS_HEIGHT = 500

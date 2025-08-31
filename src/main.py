@@ -43,11 +43,8 @@ def load_pyside_gui()->None:
 
     # Main window
     win = PysideGuiManager(
-        compact=compact,
+        initial_states=initial_states,
         is_admin=is_admin,
-        use_images=use_images,
-        snap=snap_side,
-        details=details,
         config_manager=config_manager,
         asset_manager=asset_manager,
     )
@@ -62,19 +59,20 @@ def load_pyside_gui()->None:
 def set_default_config(app:object)->None:
     """Set the default config at startup."""
     callback_manager = app.callback_manager
-    if compact:
-        callback_manager.toggle_compact_mode(startup=True)
-
-    default_config = config_manager.detect_default_config()
-    callback_manager.update_config_list(default_config)
+    callback_manager.detect_config()
 
 
 if __name__ == "__main__":
-    # Resolve base path for script vs frozen executable
     if getattr(sys, "frozen", False):
-        base_path = Path.parent(sys.executable)
+        # Running from a bundled exe (PyInstaller, cx_Freeze, etc.)
+        base_path = Path(sys.executable).resolve().parent
     else:
-        base_path = Path.parent(Path.resolve(__file__))
+        try:
+            base_path = Path(__file__).resolve().parent
+        except NameError:
+            # __file__ not defined (interactive session)
+            base_path = Path.cwd()
+
 
     # Set up managers
     config_manager = ConfigManager(base_path)
@@ -88,6 +86,12 @@ if __name__ == "__main__":
 
     # Load config
     compact, use_images, snap_side , details = config_manager.load_settings()
+    initial_states = {
+        "compact": compact,
+        "use_images": use_images,
+        "snap_side": snap_side,
+        "details": details,
+        }
 
     if gui_version == "pyside":
         load_pyside_gui()

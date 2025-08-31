@@ -1,15 +1,21 @@
+"""Window management for Ultrawide Window Positioner."""
+import logging
 import time
+from ast import literal_eval
 
-import pygetwindow as gw
 import win32con
 import win32gui
 
 # Local imports
 from utils import WindowInfo, clean_window_title
 
+logger = logging.getLogger(__name__)
 
 class WindowManager:
-    def __init__(self):
+    """Handle application windows and states."""
+
+    def __init__(self)->None:
+        """Initialize variables."""
         self.managed_windows = []
         self.topmost_windows = set()
         self._window_states = {}
@@ -21,6 +27,7 @@ class WindowManager:
             "settings",
             "windows shell experience host",
         ]
+
 
     def apply_window_config(self, config:object, hwnd:int, window_name:str|None)->bool:
         """Apply a configuration to a specific window."""
@@ -34,9 +41,17 @@ class WindowManager:
                     # Get configuration values
                     has_titlebar = config.get("has_titlebar", True)
                     if config.get("position"):
-                        position = eval(config["position"]) if isinstance(config["position"], str) else config["position"]
+                        position = (
+                            literal_eval(config["position"])
+                            if isinstance(config["position"], str)
+                            else config["position"]
+                            )
                     if config.get("size"):
-                        size = eval(config["size"]) if isinstance(config["size"], str) else config["size"]
+                        size = (
+                            literal_eval(config["size"])
+                            if isinstance(config["size"], str)
+                            else config["size"]
+                            )
 
                     always_on_top = config.get("always_on_top", False)
 
@@ -56,8 +71,8 @@ class WindowManager:
                         ]
 
                     # Example override for specific game
-                    if window_name == "Diablo IV":
-                        apply_order = ["titlebar", "pos", "size", "aot"]
+                    if window_name == "Path of Exile 2":
+                        apply_order = ["titlebar", "size", "pos", "aot"]
                     else:
                         apply_order = default_apply_order
 
@@ -76,23 +91,28 @@ class WindowManager:
 
 # Apply window config helper functions
 
-    def set_always_on_top(self, hwnd, enable):
+    def set_always_on_top(self, hwnd:int, enable:int)->None:
+        """Set the AOT state for a window."""
         if self.is_valid_window(hwnd):
             try:
                 flag = win32con.HWND_TOPMOST if enable else win32con.HWND_NOTOPMOST
-                win32gui.SetWindowPos(hwnd, flag, 0, 0, 0, 0, win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOOWNERZORDER)
+                win32gui.SetWindowPos(hwnd, flag, 0, 0, 0, 0,
+                                      win32con.SWP_NOMOVE |
+                                      win32con.SWP_NOSIZE |
+                                      win32con.SWP_NOOWNERZORDER,
+                                      )
 
                 if enable and hwnd not in self.topmost_windows:
                     self.topmost_windows.add(hwnd)
                 elif not enable and hwnd in self.topmost_windows:
                     self.topmost_windows.remove(hwnd)
 
-            except Exception as e:
-                print(f"Error setting always on top for hwnd: {hwnd}, enable: {enable}, error: {e}")
-        else:
-            pass
+            except Exception:
+                logger.exception("Failed to set always on top status.")
 
-    def set_window_position(self, hwnd, x, y):
+
+    def set_window_position(self, hwnd:int, x:int, y:int)->bool:
+        """Set the position of the window."""
         if self.is_valid_window(hwnd):
             try:
                 rect = win32gui.GetWindowRect(hwnd)
@@ -101,12 +121,16 @@ class WindowManager:
 
                 win32gui.SetWindowPos(hwnd, 0, x, y, width, height,
                                     win32con.SWP_NOZORDER | win32con.SWP_NOSIZE)
-                return True
-            except Exception as e:
-                print(f"Error setting window position for {hwnd}: {e}")
-                return False
 
-    def set_window_size(self, hwnd, width, height):
+            except Exception:
+                logger.exception("Error setting window position for %s", hwnd)
+            else:
+                return True
+        return False
+
+
+    def set_window_size(self, hwnd:int, width:int, height:int)->bool:
+        """Set the size of the window."""
         if self.is_valid_window(hwnd):
             try:
                 rect = win32gui.GetWindowRect(hwnd)
@@ -114,37 +138,49 @@ class WindowManager:
 
                 win32gui.SetWindowPos(hwnd, 0, x, y, width, height,
                                     win32con.SWP_NOZORDER | win32con.SWP_NOMOVE)
-                return True
-            except Exception as e:
-                print(f"Error setting window size for {hwnd}: {e}")
-                return False
 
-    def enable_titlebar(self, hwnd, enable=True):
+            except Exception:
+                logger.exception("Error setting window size for %s", hwnd)
+            else:
+                return True
+        return False
+
+
+    def enable_titlebar(self, hwnd:int, enable:int=1)->bool:
+        """Enable or disable the titlebar for a window."""
         if enable:
             return self.restore_window_frame(hwnd)
         if self.is_valid_window(hwnd):
             try:
                 style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
-                style &= ~(win32con.WS_CAPTION | win32con.WS_BORDER | win32con.WS_THICKFRAME)
+                style &= ~(win32con.WS_CAPTION |
+                           win32con.WS_BORDER |
+                           win32con.WS_THICKFRAME)
                 win32gui.SetWindowLong(hwnd, win32con.GWL_STYLE, style)
                 win32gui.SetWindowPos(hwnd, 0, 0, 0, 0, 0,
                                     win32con.SWP_NOMOVE | win32con.SWP_NOSIZE |
                                     win32con.SWP_FRAMECHANGED)
-                return True
-            except Exception as e:
-                print(f"Error making window borderless for hwnd: {hwnd}, error: {e}")
-                return False
 
-    def add_managed_window(self, hwnd):
+            except Exception:
+                logger.exception("Error making window borderless for hwnd: %s", hwnd)
+            else:
+                return True
+        return False
+
+
+    def add_managed_window(self, hwnd:int)->None:
+        """Add a window to the managed windows list."""
         try:
             if hwnd not in self.managed_windows:
                 self.managed_windows.append(hwnd)
                 # Store initial window state
                 self._window_states[hwnd] = self.get_window_metrics(hwnd)
-        except Exception as e:
-            print(f"Error adding managed window {hwnd}: {e}")
+        except Exception:
+            logger.exception("Error adding managed window %s", hwnd)
 
-    def remove_managed_window(self, hwnd):
+
+    def remove_managed_window(self, hwnd:int)->None:
+        """Remove a window from the managed windows list."""
         try:
             if hwnd in self.managed_windows:
                 if hwnd in self._window_states:
@@ -167,10 +203,12 @@ class WindowManager:
                 if hwnd in self.topmost_windows:
                     self.topmost_windows.remove(hwnd)
 
-        except Exception as e:
-            print(f"Error removing managed window {hwnd}: {e}")
+        except Exception:
+            logger.exception("Error removing managed window %s", hwnd)
 
-    def reset_all_windows(self):
+
+    def reset_all_windows(self)->None:
+        """Reset all windows to the original state."""
         windows_to_reset = self.managed_windows.copy()
         for hwnd in windows_to_reset:
             self.set_always_on_top(hwnd, enable=False)
@@ -180,28 +218,32 @@ class WindowManager:
 
 
 
-
-
 # Other functions
 
-    def get_always_on_top_status(self):
+    def get_always_on_top_status(self)->str:
+        """Get the current amount of windows with AOT active."""
         count = 0
         if len(self.topmost_windows) == 0:
             return "AOT: None"
         for hwnd in self.topmost_windows:
-            if (win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE) & win32con.WS_EX_TOPMOST) != 0:
+            ex_style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
+            if (ex_style & win32con.WS_EX_TOPMOST) != 0:
                 count += 1
 
         return f"AOT: {count} window{'s' if count > 1 else ''}"
 
-    def get_window_title(self, hwnd):
+
+    def get_window_title(self, hwnd:int)->str:
+        """"Get the title from a window."""
         try:
             return win32gui.GetWindowText(hwnd)
-        except Exception as e:
-            print(f"Error getting window title for {hwnd}: {e}")
+        except Exception:
+            logger.exception("Error getting window title for %s", hwnd)
             return ""
 
-    def get_window_metrics(self, hwnd):
+
+    def get_window_metrics(self, hwnd:int)->dict:
+        """Get the window metrics from the selected window."""
         try:
             rect = win32gui.GetWindowRect(hwnd)
             return {
@@ -210,78 +252,87 @@ class WindowManager:
                 "style": win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE),
                 "exstyle": win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE),
             }
-        except Exception as e:
-            print(f"Error getting window metrics: {e}")
+        except Exception:
+            logger.exception("Error getting window metrics:")
             return None
 
-    def restore_window_frame(self, hwnd):
+
+    def restore_window_frame(self, hwnd:int)->bool:
+        """Restore the titlebar and window frame for a window."""
         if self.is_valid_window(hwnd):
             try:
                 style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
-                style |= (win32con.WS_CAPTION | win32con.WS_BORDER | win32con.WS_THICKFRAME)
+                style |= (win32con.WS_CAPTION |
+                          win32con.WS_BORDER |
+                          win32con.WS_THICKFRAME)
                 win32gui.SetWindowLong(hwnd, win32con.GWL_STYLE, style)
                 win32gui.SetWindowPos(hwnd, 0, 0, 0, 0, 0,
                                     win32con.SWP_NOMOVE | win32con.SWP_NOSIZE |
                                     win32con.SWP_FRAMECHANGED | win32con.SWP_SHOWWINDOW)
-                return True
-            except Exception as e:
-                print(f"Error restoring window frame for hwnd: {hwnd}, error: {e}")
-                return False
 
-    def find_matching_windows(self, config):
+            except Exception:
+                logger.exception("Error restoring window frame for hwnd: %s", hwnd)
+            else:
+                return True
+        return False
+
+
+    def find_matching_windows(self, config: dict) -> tuple[list[dict], list[str]]:
+        """Check which windows in the config exist and which don't."""
         matching_windows = []
         missing_windows = []
 
-        try:
-            if not config or len(config.sections()) == 0:
-                return matching_windows, missing_windows
-
-            all_titles = gw.getAllTitles()
-
-            for section in config.sections():
-                cleaned_section = clean_window_title(section, sanitize=True)
-                window_exists = False
-
-                for title in all_titles:
-                    if not title:
-                        continue
-                    cleaned_title = clean_window_title(title, sanitize=True)
-                    if cleaned_section in cleaned_title:
-                        title_matches = gw.getWindowsWithTitle(title)
-                        for i, title_match in enumerate(title_matches):
-                            cleaned_title_match = clean_window_title(title_match.title, sanitize=True)
-                            if cleaned_title_match == cleaned_section:
-                                window = title_match
-                                matching_windows.append({
-                                    "config_name": section,
-                                    "window": window,
-                                    "hwnd": window._hWnd,
-                                })
-                                window_exists = True
-                                break
-
-                if not window_exists:
-                    missing_windows.append(section)
-
+        if not config or len(config.sections()) == 0:
             return matching_windows, missing_windows
-        except Exception as e:
-            print(f"Error finding matching windows: {e}")
-            return [], []
 
-    def toggle_always_on_top(self, hwnd):
+        all_titles = self.get_all_window_titles()
+
+        for section in config.sections():
+            cleaned_section = clean_window_title(section, sanitize=True)
+            hwnd = None
+
+            for title in all_titles:
+                if clean_window_title(title, sanitize=True) == cleaned_section:
+                    hwnd = win32gui.FindWindow(None, title)
+                    break
+
+            if hwnd:
+                matching_windows.append({
+                    "config_name": section,
+                    "hwnd": hwnd,
+                })
+            else:
+                missing_windows.append(section)
+
+        return matching_windows, missing_windows
+
+
+    def toggle_always_on_top(self, hwnd:int)->None:
+        """Toggle AOT status for current config."""
         try:
             if hwnd in self.topmost_windows:
-                is_topmost = (win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE) & win32con.WS_EX_TOPMOST) != 0
-                flag = win32con.HWND_TOPMOST if not is_topmost else win32con.HWND_NOTOPMOST
-                win32gui.SetWindowPos(hwnd, flag, 0, 0, 0, 0, win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOOWNERZORDER)
+                is_topmost = (
+                    win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
+                    & win32con.WS_EX_TOPMOST
+                    ) != 0
+                flag = (
+                    win32con.HWND_TOPMOST
+                    if not is_topmost
+                    else win32con.HWND_NOTOPMOST
+                    )
+                win32gui.SetWindowPos(hwnd, flag, 0, 0, 0, 0,
+                                      win32con.SWP_NOMOVE |
+                                      win32con.SWP_NOSIZE |
+                                      win32con.SWP_NOOWNERZORDER)
 
-        except Exception as e:
-            print(f"Error toggling always-on-top: {e}")
-            return False
+        except Exception:
+            logger.exception("Error toggling always-on-top:")
 
-    def get_all_window_titles(self):
+
+    def get_all_window_titles(self)->list:
+        """Get the title from all existing windows."""
         try:
-            def enum_window_callback(hwnd, windows):
+            def enum_window_callback(hwnd:int, windows:list)->bool:
                 if win32gui.IsWindowVisible(hwnd):
                     title = win32gui.GetWindowText(hwnd)
                     if title and title.lower() not in self.ignored_windows:
@@ -291,60 +342,73 @@ class WindowManager:
             windows = []
             win32gui.EnumWindows(enum_window_callback, windows)
             return sorted(windows)
-        except Exception as e:
-            print(f"Error getting window titles: {e}")
-            return []
+        except Exception:
+            logger.exception("Error getting window titles:")
+        return []
 
-    def is_valid_window(self, hwnd):
+
+    def is_valid_window(self, hwnd:int)->bool:
+        """Check if a hwnd is a valid window."""
         try:
             return win32gui.IsWindow(hwnd) != 0
-        except Exception:
+        except win32gui.error:
             return False
 
-    def bring_to_front(self, hwnd):
+
+    def bring_to_front(self, hwnd:int)->None:
+        """Set a window to the front, not AOT."""
         try:
             if not win32gui.IsWindow(hwnd):
                 return
-            # Restore if minimized
             win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-            # Push to the very top (above everything else)
             win32gui.SetWindowPos(
                 hwnd,
                 win32con.HWND_TOPMOST,
                 0, 0, 0, 0,
                 win32con.SWP_NOMOVE | win32con.SWP_NOSIZE,
             )
-            # Immediately remove always-on-top so normal stacking returns
             win32gui.SetWindowPos(
                 hwnd,
                 win32con.HWND_NOTOPMOST,
                 0, 0, 0, 0,
                 win32con.SWP_NOMOVE | win32con.SWP_NOSIZE,
             )
-        except Exception as e:
-            print(f"Failed to bring window to front: {e}")
+        except Exception:
+            logger.exception("Failed to bring window to front:")
 
-    def get_windows_for_layout(self, config, missing_windows):
+
+    def get_windows_for_layout(
+            self,
+            config:dict,
+            missing_windows:list,
+            )->list[WindowInfo]:
+        """Get the windows from the config to use for drawing the layout preview."""
         positioned_windows = []
 
         if config:
             for section in config.sections():
                 pos = config[section].get("position")
                 size = config[section].get("size")
+                aot=config[section].get("always_on_top", "false").lower() == "true"
+                title=config[section].get("search_title") or section
+                source_url=config[section].get("source_url", "")
+                source=config[section].get("source", "")
 
                 if pos and size:
                     pos_x, pos_y = map(int, pos.split(","))
                     size_w, size_h = map(int, size.split(","))
                     positioned_windows.append(
                         WindowInfo(
-                            section,
-                            pos_x, pos_y,
-                            size_w, size_h,
-                            always_on_top=config[section].get("always_on_top", "false").lower() == "true",
+                            name=section,
+                            pos_x=pos_x,
+                            pos_y=pos_y,
+                            width=size_w,
+                            height=size_h,
+                            always_on_top=aot,
                             exists=section not in missing_windows,
-                            search_title=config[section].get("search_title") or section,
-                            source_url=config[section].get("source_url", ""),
-                            source=config[section].get("source", ""),
+                            search_title=title,
+                            source_url=source_url,
+                            source=source,
                         ),
                     )
         else:
@@ -363,3 +427,9 @@ class WindowManager:
             )
 
         return positioned_windows
+
+
+
+
+
+
