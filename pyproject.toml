@@ -6,12 +6,12 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "customtkinter>=5.2.2",
+    "global-hotkeys>=0.1.7",
     "mss>=10.0.0",
     "pillow>=11.3.0",
     "pygetwindow>=0.0.9",
     "pyinstaller>=6.15.0",
     "pyside6>=6.9.1",
     "pywin32>=311",
-    "pywinstyles>=1.8",
     "requests>=2.32.4",
 ]

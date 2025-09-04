@@ -60,12 +60,13 @@ if __name__ == "__main__":
         is_admin = False
 
     # Load config
-    compact, use_images, snap_side , details = config_manager.load_settings()
+    compact, use_images, snap_side , details, hotkey = config_manager.load_settings()
     initial_states = {
         "compact": compact,
         "use_images": use_images,
         "snap_side": snap_side,
         "details": details,
+        "hotkey": hotkey,
         }
 
     load_pyside_gui()

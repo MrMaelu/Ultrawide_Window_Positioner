@@ -1,6 +1,7 @@
 """Configuration manager for the Ultrawide Window Positioner."""
 import ast
 import configparser
+import contextlib
 import json
 import os
 import re
@@ -10,7 +11,7 @@ import pygetwindow as gw
 import win32con
 import win32gui
 
-from constants import LayoutDefaults
+from constants import AOT_HOTKEY, LayoutDefaults
 
 # Local imports
 from utils import clean_window_title
@@ -36,6 +37,8 @@ class ConfigManager:
             4: LayoutDefaults.FOUR_WINDOWS,
             }
 
+        self.layout_overrides = dict(LayoutDefaults.OVERRIDES)
+
         # Create directories if they don't exist
         if not Path.exists(self.config_dir):
             Path.mkdir(self.config_dir, parents=True)
@@ -43,31 +46,51 @@ class ConfigManager:
             Path.mkdir(self.settings_dir, parents=True)
 
 
-    def load_or_create_layouts(self, path:str, *, reset:bool=False) -> dict:
-        """Create new config file with defaults."""
-        section = "Layouts"
-        if reset or not Path.exists(path):
-            config = configparser.ConfigParser()
-            config[section] = {}
+    def load_or_create_layouts(self, path:str, *, reset:bool=False)->tuple[dict,dict]:
+        """Load layouts from config, or create new config with defaults."""
+        path = Path(path)
+        sections = ("Layouts", "Overrides")
 
-            for key, entries in self.default_layouts.items():
-                config[section][str(key)] = repr(entries)
-            with Path.open(path, "w") as f:
+        defaults = {
+            sections[0]: {str(k): repr(v) for k, v in self.default_layouts.items()},
+            sections[1]: {str(k): repr(v) for k, v in self.layout_overrides.items()},
+        }
+
+        config = configparser.ConfigParser()
+
+        # Create/reset
+        if reset or not path.exists():
+            config.read_dict(defaults)
+            with path.open("w") as f:
+                f.write(LayoutDefaults.CONFIG_HEADER_TEXT)
                 config.write(f)
-            return self.default_layouts
 
-        # Load config file
-        if Path.exists(path):
-            config = configparser.ConfigParser()
-            config.read(path)
-            layouts = {}
+        # Load existing file
+        config.read(path)
+        updated = False
+
+        # Ensure required sections exist
+        for section, values in defaults.items():
             if section not in config:
-                return self.default_layouts
+                config[section] = values
+                updated = True
 
-            for key in config[section]:
-                layouts[int(key)] = ast.literal_eval(config[section][key])
-            return layouts
-        return None
+        if updated:
+            with path.open("w") as f:
+                config.write(f)
+
+        # Parse values, ignoring invalid ones
+        layouts, overrides = {}, {}
+
+        for k, v in config[sections[0]].items():
+            with contextlib.suppress(Exception):
+                layouts[int(k)] = ast.literal_eval(v)
+
+        for k, v in config[sections[1]].items():
+            with contextlib.suppress(Exception):
+                overrides[str(k)] = ast.literal_eval(v)
+
+        return  layouts or self.default_layouts, overrides or self.layout_overrides
 
 
     def list_config_files(self)->tuple[list,list]:
@@ -103,7 +126,7 @@ class ConfigManager:
 
     def load_settings(self)-> tuple[bool,bool,bool,bool]:
         """Load application settings."""
-        defaults = 0, 0, 0, 0
+        defaults = 0, 0, 0, 0, AOT_HOTKEY
         if Path.exists(self.settings_file):
             with Path.open(self.settings_file) as f:
                 settings = json.load(f)
@@ -111,7 +134,8 @@ class ConfigManager:
                 use_images = settings.get("use_images", 0)
                 snap  = settings.get("snap", 0)
                 details = settings.get("details", 0)
-                return compact, use_images, snap, details
+                hotkey = settings.get("hotkey", AOT_HOTKEY)
+                return compact, use_images, snap, details, hotkey
         return defaults
 
 
@@ -120,6 +144,7 @@ class ConfigManager:
                       use_images:bool,
                       snap:bool,
                       details:bool,
+                      hotkey:str=AOT_HOTKEY,
                       )->bool:
         """Save application settings."""
         with Path.open(self.settings_file, "w") as f:
@@ -128,8 +153,10 @@ class ConfigManager:
                 "use_images": use_images,
                 "snap": snap,
                 "details": details,
+                "hotkey": hotkey,
                 }, f)
         return True
+
 
     def detect_default_config(self)->list:
         """Detect and return the best default configuration."""
@@ -169,7 +196,11 @@ class ConfigManager:
         return config_names[0] if config_names else None
 
 
-    def save_window_config(self, config_name:str, window_data:list)->bool:
+    def save_window_config(self,
+                           config_name:str,
+                           window_data:list,
+                           apply_order:list,
+                           )->bool:
         """Save config."""
         if not config_name:
             return False
@@ -203,6 +234,10 @@ class ConfigManager:
                 "titlebar": (str(settings.get("titlebar")).lower()
                                 if "titlebar" in settings else "true"),
             }
+
+        # Store apply order in DEFAULT section (no new window section needed)
+        if apply_order:
+            config["DEFAULT"]["apply_order"] = ",".join(apply_order)
 
         validated_config = self.validate_and_repair_config(config)
 
@@ -238,6 +273,7 @@ class ConfigManager:
         except (win32gui.error):
             return None
 
+
     def delete_config(self, name:str)->bool:
         """Delete a config file."""
         try:
@@ -249,13 +285,14 @@ class ConfigManager:
             pass
         return False
 
+
     def validate_and_repair_config(self, config:str)->object:  # noqa: C901
         """Validate and repair a config file."""
         repaired_config = configparser.ConfigParser()
         repaired_config.optionxform = str
 
         for section in config.sections():
-            if not section.strip() or section.upper() == "DEFAULT":
+            if not section.strip():
                 continue
 
             valid_items = {}
@@ -285,7 +322,13 @@ class ConfigManager:
                 for key, val in valid_items.items():
                     repaired_config.set(section, key, str(val))
 
+        if config.has_option("DEFAULT", "apply_order"):
+            repaired_config["DEFAULT"]["apply_order"] = (
+                config.get("DEFAULT", "apply_order")
+                )
+
         return repaired_config
+
 
     def update_rawg_url(self, title:str, rawg_url:str)->bool:
         """Update the RAWG URL for a title."""
@@ -307,3 +350,5 @@ class ConfigManager:
                 return True
         except (PermissionError, FileNotFoundError):
             return False
+
+

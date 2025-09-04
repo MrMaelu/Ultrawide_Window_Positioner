@@ -1,6 +1,7 @@
 """Asset manager for Ultrawide Window Postioner."""
 import importlib
 import threading
+import time
 from pathlib import Path
 
 import mss
@@ -16,6 +17,7 @@ IGNORE_LIST = [
     "opera",
     "firefox",
     "google chrome",
+    "Visual Studio Code",
 ]
 
 ACCESS_TOKEN_LENGTH = 30
@@ -40,7 +42,7 @@ class AssetManager:
 
         self.client_info_missing = True
 
-        self.COMPRESSION = (1024,1024)
+        self.COMPRESSION = (2048,2048)
 
         self.secrets_status = None
         self.client_info_missing = None
@@ -262,7 +264,7 @@ class AssetManager:
 
     def capture_window(self, hwnd:int, save_path:str) -> None:
         """Take a screenshot of the window."""
-        self.bring_to_front(hwnd)
+        time.sleep(0.1)  # Wait for window to come to front
         with mss.mss() as sct:
             bbox = self.get_window_rect(hwnd)
             sct_img = sct.grab(bbox)

@@ -27,9 +27,9 @@ class WindowManager:
             "settings",
             "windows shell experience host",
         ]
+        self.default_apply_order = ["titlebar", "pos", "size", "aot"]
 
-
-    def apply_window_config(self, config:object, hwnd:int, window_name:str|None)->bool:
+    def apply_window_config(self, config:dict, hwnd:int)->bool:
         """Apply a configuration to a specific window."""
         if self.is_valid_window(hwnd) and config:
             try:
@@ -63,20 +63,15 @@ class WindowManager:
                         "size": (self.set_window_size, size[0], size[1]),
                     }
 
-                    default_apply_order = [
-                        "titlebar",
-                        "pos",
-                        "size",
-                        "aot",
-                        ]
+                    apply_order_str = config.get("apply_order") or ""
 
-                    # Example override for specific game
-                    if window_name == "Path of Exile 2":
-                        apply_order = ["titlebar", "size", "pos", "aot"]
-                    else:
-                        apply_order = default_apply_order
+                    apply_order = (
+                        apply_order_str.split(",")
+                        if apply_order_str else self.default_apply_order
+                        )
 
-                    for key in apply_order:
+                    for raw_key in apply_order:
+                        key = raw_key.strip().lower()
                         args = apply_funcs[key][1:]
                         if args:
                             apply_funcs[key][0](hwnd, *args)

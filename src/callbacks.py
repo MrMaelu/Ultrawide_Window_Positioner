@@ -116,9 +116,14 @@ class CallbackManager:
                         "titlebar",
                         fallback=True,
                         ),
+                    "apply_order": self.applied_config.get(
+                        section,
+                        "apply_order",
+                        fallback="",
+                        ),
                 }
 
-                self.window_manager.apply_window_config(settings, hwnd, section)
+                self.window_manager.apply_window_config(settings, hwnd)
 
         self.update_always_on_top_status()
         self.app.applied_config = selected_config_shortname
@@ -261,13 +266,13 @@ class CallbackManager:
 
     def _get_screenshots(self, search_titles:dict)->tuple[int,int,int]:
         """Search for and download screenshots, update config URLs."""
+        ignored = 0
+        number_of_images = 0
+        failed_downloads = 0
         for title, pairs in search_titles.items():
             filename = title.replace(" ", "_").replace(":", "")
-            image_path = Path.join(self.assets_dir, f"{filename}.jpg")
+            image_path = Path(self.assets_dir, f"{filename}.jpg")
 
-            ignored = 0
-            number_of_images = 0
-            failed_downloads = 0
             source_url = ""
             source = ""
 
@@ -319,15 +324,15 @@ class CallbackManager:
 
     def download_screenshots(self)->None:
         """Download screenshots from IGDB and RAWG."""
-        number_of_images = 0
-        failed_downloads = 0
-        ignored = 0
+        number_of_images = failed_downloads = ignored = 0
         self.ui.set_widget_state(self.app.image_download_button, enabled=False)
 
         search_titles = self._get_search_titles()
 
         # Downloading screenshots for all titles
-        self._get_screenshots(search_titles=search_titles)
+        ignored, number_of_images, failed_downloads = (
+            self._get_screenshots(search_titles=search_titles)
+            )
 
         _, missing_windows = self.window_manager.find_matching_windows(self.config)
         if not self.compact:
@@ -442,12 +447,13 @@ class CallbackManager:
     # (compact mode, use images, snap on startup position and show window details)
     def save_settings(self)->None:
         """Save GUI settings."""
-        compact, images, snap, details = self.ui.get_save_values()
+        compact, images, snap, details, hotkey = self.ui.get_save_values()
         self.config_manager.save_settings(
             compact_mode=compact,
             use_images=images,
             snap=snap,
             details=details,
+            hotkey=hotkey,
             )
 
 
@@ -579,6 +585,7 @@ class UIAdapter:
                 self.app.use_images,
                 self.app.snap,
                 self.app.details,
+                self.app.hotkey,
                 )
 
         if self.ui_type == "ctk":
@@ -587,6 +594,7 @@ class UIAdapter:
                 self.app.use_images.get(),
                 self.app.snap.get(),
                 self.app.details.get(),
+                self.app.hotkey.get(),
                 )
 
         return False, False, False, False
