@@ -1,7 +1,10 @@
 """GUI layout for PySide."""
 
+
 from __future__ import annotations
 
+import os
+import sys
 from fractions import Fraction
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -48,6 +51,9 @@ from utils import WindowInfo, clean_window_title, convert_hex_to_rgb, invert_hex
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+
+
 
 # Safe callback getter
 def _cb(d: dict[str, Callable]|None, key:str, default:Callable|None = None)->Callable:
@@ -118,6 +124,10 @@ class PysideGuiManager(QMainWindow):
         self.callbacks = self.callback_manager.callbacks
         self.assets_dir = self.callback_manager.assets_dir
         self.client_info_missing = getattr(asset_manager, "client_info_missing", False)
+
+        self.svg_path = Path(
+            self.config_manager.base_path, "checkmark.svg").as_posix()
+
 
 
     def _init_screen(self) -> None:
@@ -582,7 +592,7 @@ class PysideGuiManager(QMainWindow):
             QCheckBox::indicator:checked {{
                 background: {self.colors.BUTTON_ACTIVE};
                 color: palette(highlighted-text);
-                image: url(src/checkmark.svg);
+                image: url({self.svg_path});
             }}
             QRadioButton::indicator:checked {{
                 border: 1px solid {self.colors.BORDER_COLOR};

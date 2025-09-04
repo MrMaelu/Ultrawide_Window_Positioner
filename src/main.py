@@ -1,40 +1,15 @@
-"""Main entry point for the Ultrawide Window Positioner."""
+"""Main entry point for Ultrawide Window Positioner with PySide GUI."""
 import sys
 from ctypes import windll
 from pathlib import Path
+
+from PySide6.QtWidgets import QApplication
 
 from asset_manager import AssetManager
 
 # Local imports
 from config_manager import ConfigManager
-
-gui_version = "pyside" # pyside or ctk
-
-if gui_version == "pyside":
-    from PySide6.QtWidgets import QApplication
-
-    from layout_pyside import PysideGuiManager
-elif gui_version == "ctk":
-    from layout_ctk import CtkGuiManager
-
-
-
-def load_ctk_gui()->None:
-    """Load the CTK GUI manager."""
-    app = CtkGuiManager(
-        compact=compact,
-        is_admin=is_admin,
-        use_images=use_images,
-        snap=snap_side,
-        details=details,
-        config_manager=config_manager,
-        asset_manager=asset_manager,
-        )
-
-    set_default_config(app)
-
-    # Start main GUI
-    app.mainloop()
+from layout_pyside import PysideGuiManager
 
 
 def load_pyside_gui()->None:
@@ -85,16 +60,13 @@ if __name__ == "__main__":
         is_admin = False
 
     # Load config
-    compact, use_images, snap_side , details = config_manager.load_settings()
+    compact, use_images, snap_side , details, hotkey = config_manager.load_settings()
     initial_states = {
         "compact": compact,
         "use_images": use_images,
         "snap_side": snap_side,
         "details": details,
+        "hotkey": hotkey,
         }
 
-    if gui_version == "pyside":
-        load_pyside_gui()
-    elif gui_version == "ctk":
-        load_ctk_gui()
-
+    load_pyside_gui()
