@@ -3,8 +3,10 @@ import logging
 import time
 from ast import literal_eval
 
+import psutil
 import win32con
 import win32gui
+import win32process
 
 # Local imports
 from utils import WindowInfo, clean_window_title
@@ -27,7 +29,11 @@ class WindowManager:
             "settings",
             "windows shell experience host",
         ]
-        self.default_apply_order = ["titlebar", "pos", "size", "aot"]
+        self.default_apply_order = ["titlebar",
+                                    "pos",
+                                    "size",
+                                    "aot",
+                                    ]
 
     def apply_window_config(self, config:dict, hwnd:int)->bool:
         """Apply a configuration to a specific window."""
@@ -54,6 +60,7 @@ class WindowManager:
                             )
 
                     always_on_top = config.get("always_on_top", False)
+                    process_priority = config.get("process_priority", False)
 
                     # Apply settings
                     apply_funcs = {
@@ -76,6 +83,7 @@ class WindowManager:
                         if args:
                             apply_funcs[key][0](hwnd, *args)
                         time.sleep(0.1)
+                        self.set_priority(hwnd, enable=process_priority)
 
             except win32gui.error:
                 pass
@@ -161,6 +169,17 @@ class WindowManager:
             else:
                 return True
         return False
+
+
+    def set_priority(self, hwnd:int, *, enable:bool)->None:
+        """Set the process priority for a window."""
+        if self.is_valid_window(hwnd) and enable:
+            try:
+                _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                p = psutil.Process(pid)
+                p.nice(psutil.ABOVE_NORMAL_PRIORITY_CLASS)
+            except Exception as e:
+                logger.exception("Error setting process priority for hwnd: %s", hwnd)
 
 
     def add_managed_window(self, hwnd:int)->None:

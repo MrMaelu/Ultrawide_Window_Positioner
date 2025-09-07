@@ -1,9 +1,7 @@
 """GUI layout for PySide."""
 
-
 from __future__ import annotations
 
-import os
 import sys
 from fractions import Fraction
 from pathlib import Path
@@ -125,9 +123,10 @@ class PysideGuiManager(QMainWindow):
         self.assets_dir = self.callback_manager.assets_dir
         self.client_info_missing = getattr(asset_manager, "client_info_missing", False)
 
-        self.svg_path = Path(
-            self.config_manager.base_path, "checkmark.svg").as_posix()
-
+        if hasattr(sys, "_MEIPASS"):
+            self.svg_path = Path(Path(sys._MEIPASS, "checkmark.svg")).as_posix()  # noqa: SLF001
+        else:
+            self.svg_path = Path(Path(__file__).parent, "checkmark.svg").as_posix()
 
 
     def _init_screen(self) -> None:
@@ -1471,7 +1470,7 @@ class ConfigDialog(QDialog):
 class WindowSettingsRow(QWidget):
     """Create a row for the create config settings window."""
 
-    def __init__(self, title:str, values:list)->None:
+    def __init__(self, title:str, values:dict)->None:
         """Initialize variables."""
         super().__init__()
         layout = QHBoxLayout(self)
@@ -1496,6 +1495,8 @@ class WindowSettingsRow(QWidget):
         self.aot_cb.setChecked(bool(aot))
         self.titlebar_cb = QCheckBox("Titlebar")
         self.titlebar_cb.setChecked(bool(titlebar))
+        self.process_priority_cb = QCheckBox("Process priority")
+        self.process_priority_cb.setChecked(False)
 
         layout.addWidget(self.name_edit, stretch=2)
         layout.addWidget(QLabel("Pos:"))
@@ -1504,6 +1505,7 @@ class WindowSettingsRow(QWidget):
         layout.addWidget(self.size_edit, stretch=0)
         layout.addWidget(self.aot_cb)
         layout.addWidget(self.titlebar_cb)
+        layout.addWidget(self.process_priority_cb)
 
 
     def to_bool(self, val:str)->bool:
@@ -1523,15 +1525,17 @@ class WindowSettingsRow(QWidget):
             "size": self.size_edit.text(),
             "always_on_top": self.aot_cb.isChecked(),
             "titlebar": self.titlebar_cb.isChecked(),
+            "process_priority": self.process_priority_cb.isChecked(),
         }
 
 
-    def set_values(self,
+    def set_values(self,  # noqa: PLR0913
                    name:str,
                    pos:list[int, int],
                    size:list[int, int],
                    aot:int,
                    titlebar:int,
+                   process_priority:int=0,
                    )->None:
         """Update the settings row values."""
         self.name_edit.setText(name)
@@ -1539,6 +1543,7 @@ class WindowSettingsRow(QWidget):
         self.size_edit.setText(size)
         self.aot_cb.setChecked(aot)
         self.titlebar_cb.setChecked(titlebar)
+        self.process_priority_cb.setChecked(process_priority)
 
 
 

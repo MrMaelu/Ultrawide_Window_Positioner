@@ -233,6 +233,8 @@ class ConfigManager:
                                     if "always_on_top" in settings else "false"),
                 "titlebar": (str(settings.get("titlebar")).lower()
                                 if "titlebar" in settings else "true"),
+                "process_priority": (str(settings.get("process_priority")).lower()
+                                if "process_priority" in settings else "false"),
             }
 
         # Store apply order in DEFAULT section (no new window section needed)
@@ -314,6 +316,11 @@ class ConfigManager:
                     valid_items[key] = (
                         value.lower()
                         if value.lower() in ("true", "false") else "true")
+                elif key == "process_priority":
+                    valid_items[key] = (
+                        value.lower()
+                        if value.lower() in ("true", "false") else "false"
+                        )
                 elif value is not None and value.strip():
                     valid_items[key] = value.strip()
 

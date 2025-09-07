@@ -116,6 +116,11 @@ class CallbackManager:
                         "titlebar",
                         fallback=True,
                         ),
+                    "process_priority": self.applied_config.getboolean(
+                        section,
+                        "process_priority",
+                        fallback=False,
+                        ),
                     "apply_order": self.applied_config.get(
                         section,
                         "apply_order",

@@ -9,6 +9,7 @@ dependencies = [
     "global-hotkeys>=0.1.7",
     "mss>=10.0.0",
     "pillow>=11.3.0",
+    "psutil>=7.0.0",
     "pygetwindow>=0.0.9",
     "pyinstaller>=6.15.0",
     "pyside6>=6.9.1",

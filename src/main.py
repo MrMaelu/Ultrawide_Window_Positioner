@@ -37,6 +37,8 @@ def set_default_config(app:object)->None:
     callback_manager.detect_config()
 
 
+
+
 if __name__ == "__main__":
     if getattr(sys, "frozen", False):
         # Running from a bundled exe (PyInstaller, cx_Freeze, etc.)
@@ -47,7 +49,6 @@ if __name__ == "__main__":
         except NameError:
             # __file__ not defined (interactive session)
             base_path = Path.cwd()
-
 
     # Set up managers
     config_manager = ConfigManager(base_path)
