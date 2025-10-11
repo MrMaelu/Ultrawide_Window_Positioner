@@ -1,4 +1,5 @@
 # Ultrawide Window Positioner
+***Updated to use Pyside for GUI (QT)***
 
 ## Manage window layouts with custom configurations
 
@@ -11,26 +12,29 @@
 ## Features:
 #### - Create and apply window configurations.  (Stored as 'config_*.ini' files.)
 #### - Visual preview of the selected configuration's layout.
+#### - Multiple presets available for window layout, as well as manual adjustments.
 #### - Optional screenshot view mode.
-- Screenshots can be taken using the "Take screenshots" button, or automatically downloaded from IGDB using the "Download images" button. (API key needed for IGDB.)
+- Screenshots can be taken using the "Take screenshots" button, or automatically downloaded from IGDB or RAWG using the "Download images" button. (API key needed for IGDB/RAWG.)
 - You can also manually add your own screenshots to the image folder.
 #### - Toggle Always-on-Top state specifically for windows managed by the *currently applied config*.
+#### - Set higher process priority for selected applications. (sets it to "above normal".)
 #### - Support for multiple configuration files.
 #### - Config creation through GUI.
 #### - Compact GUI mode available.
+#### - Configurable overrides per application available in ```layout_config.ini```
 
 ## Screenshots
 ### Main window
-<img src="https://i.ibb.co/8n4HxZcB/Skjermbilde-2025-07-15-135700.png" alt="Main window">
+<img src="https://i.ibb.co/Q7c9XKzm/Skjermbilde-2025-09-07-164602.png" alt="Main window">
 
 ### Main window screenshot mode
-<img src="https://i.ibb.co/KcQkdzcQ/Skjermbilde-2025-07-15-135820.png" alt="Main window screenshot mode">
+<img src="https://i.ibb.co/rL3rtgF/Skjermbilde-2025-09-07-164651.png" alt="Main window screenshot mode">
 
 ### Main window compact mode
-<img src="https://i.ibb.co/d4dJqMVC/Skjermbilde-2025-07-15-135828.png" alt="Main window compact mode">
+<img src="https://i.ibb.co/bjMJNhcB/Skjermbilde-2025-09-07-164705.png" alt="Main window compact mode">
 
 ### Config window
-<img src="https://i.ibb.co/GvBfJpnQ/Skjermbilde-2025-07-15-135855.png" alt="Config window">
+<img src="https://i.ibb.co/jPfwgSyH/Skjermbilde-2025-09-07-164734.png" alt="Config window">
 
 
 ## How to use:
@@ -56,6 +60,8 @@
 ### Toggle AOT
 - Change the state of windows managed by the ***currently applied config***.
 - Useful for temporary access to the start menu or taskbar if it is covered by an application/game.
+- Configurable hotkey in ```settings.json```
+- Default hotkey: alt + home
 
 ### Delete config
 1. Select the config from the dropdown
@@ -86,35 +92,49 @@
 - You can set the application to open snapped to either edge of the screen instead of centered.
 - This can be used to avoid opening the application behind a always-on-top window.
 
+### Auto-reapply
+- Setting this will automatically reapply the current window settings if a change is detected.
+- Useful for games that has a lobby and lauches a new game window per match, for example League of Legends.
+
 ## Configuration Format (***'config_\<name\>.ini'***):
 ```
 [Window Title]
-position = x,y              # Window position
-size = width,height         # Window size
-always_on_top = true/false  # Set always-on-top state
-titlebar = true/false       # Enable to keep title bar, disable to remove titlebar
-search_title = <title>      # Search title override for screenshot download (must be added manually)
+apply_order = Titlebar,Pos,Size,Aot # Set the order for applying settings
+position = x,y                      # Window position
+size = width,height                 # Window size
+always_on_top = true/false          # Set always-on-top state
+titlebar = true/false               # Enable to keep title bar, disable to remove titlebar
+process_priority = true/false       # Set priority to "above normal" if true
+search_title = <title>              # Search title override for screenshot download (must be added manually)
 ```
 ### Example:
 ```
-[Microsoft Edge]
+[DEFAULT]
+apply_order = Titlebar,Pos,Size,Aot
+
+[Opera]
+apply_order = Titlebar,Pos,Size,Aot
 position = -7,0
-size = 1722,1400
+size = 1720,1401
 always_on_top = false
 titlebar = true
+process_priority = false
 
-[Final Fantasy XIV]
-search_title = Final Fantasy XIV Online
-position = 1708,0
+[Visual Studio Code]
+apply_order = Titlebar,Pos,Size,Aot
+position = 1706,-1
 size = 2560,1440
-always_on_top = true
-titlebar = false
+always_on_top = false
+titlebar = true
+process_priority = false
 
 [Discord]
-position = 4268,0
-size = 852,1392
+apply_order = Titlebar,Pos,Size,Aot
+position = 4264,-1
+size = 856,1394
 always_on_top = false
 titlebar = true
+process_priority = false
 ```
 
 ## Notes:
@@ -123,6 +143,8 @@ titlebar = true
 ## Multi-monitor use
 
 ### This application is made with ultrawide monitors in mind (32:9 / 21:9) and will work best on a single monitor setup.
+
+- For best results on multi-monitor the leftmost monitor should be set to main.
 
 ### *Should* work well with similar monitors in a left to right setup, but only limited testing has been done:
    ```
