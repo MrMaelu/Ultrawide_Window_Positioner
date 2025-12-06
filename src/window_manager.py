@@ -306,7 +306,7 @@ class WindowManager:
             hwnd = None
 
             for title in all_titles:
-                if cleaned_section in clean_window_title(title, sanitize=True):
+                if clean_window_title(title, sanitize=True).startswith(cleaned_section):
                     hwnd = win32gui.FindWindow(None, title)
                     break
 

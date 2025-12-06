@@ -179,7 +179,7 @@ class ConfigManager:
                     cleaned_section = clean_window_title(section, sanitize=True)
 
                     for title in cleaned_titles:
-                        if cleaned_section in title:
+                        if title.startswith(cleaned_section):
                             return config_names[config_files.index(config_file)]
                 elif section in cleaned_titles:
                     matching_windows += 1

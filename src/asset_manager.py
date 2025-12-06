@@ -59,7 +59,6 @@ class AssetManager:
         self.client_info_missing = self.igdb_api_missing and self.rawg_api_missing
         if not self.igdb_api_missing:
             self.load_igdb_client_info()
-        self.load_igdb_client_info()
 
     def load_client_secrets(self) -> bool:
         """Check if IGDB secrets are added."""
