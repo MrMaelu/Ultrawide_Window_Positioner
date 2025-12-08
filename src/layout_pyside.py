@@ -218,7 +218,7 @@ class PysideGuiManager(QMainWindow):
             self.admin_button,
             self.theme_switch,
             self.detect_config_button,
-            self.config_folder_button,
+            self.edit_config_button,
             self.image_folder_button,
             self.image_download_button,
             self.screenshot_button,
@@ -415,7 +415,7 @@ class PysideGuiManager(QMainWindow):
             ("Apply config", "apply_config_button"),
             ("Reset config", "reset_config_button"),
             ("Create config", "create_config_button"),
-            ("Delete config", "delete_config_button"),
+            ("Edit config", "edit_config_button"),
         ]:
             btn = QPushButton(text, self)
             setattr(self, attr, btn)
@@ -425,7 +425,6 @@ class PysideGuiManager(QMainWindow):
         # Row 2: folder / screenshot / images
         self.b2 = QHBoxLayout()
         for text, attr, enabled in [
-            ("Open config folder", "config_folder_button", True),
             ("Take screenshots", "screenshot_button", True),
             (
                 "Download images"
@@ -435,6 +434,7 @@ class PysideGuiManager(QMainWindow):
                 not self.client_info_missing,
             ),
             ("Open image folder", "image_folder_button", True),
+            ("Delete config", "delete_config_button", True),
         ]:
             btn = QPushButton(text, self)
             btn.setEnabled(enabled)
@@ -521,8 +521,8 @@ class PysideGuiManager(QMainWindow):
             _cb(self.callbacks, "create_config"))
         self.delete_config_button.clicked.connect(
             _cb(self.callbacks, "delete_config"))
-        self.config_folder_button.clicked.connect(
-            _cb(self.callbacks, "open_config_folder"))
+        self.edit_config_button.clicked.connect(
+            self.edit_config_dialog)
         self.reset_config_button.clicked.connect(
             _cb(self.callbacks, "apply_config"))
         self.screenshot_button.clicked.connect(
@@ -803,6 +803,48 @@ class PysideGuiManager(QMainWindow):
 
 
 
+
+
+    def edit_config_dialog(self)->None:
+        """Edit the current config."""
+        # Get current config windows and settings
+        config_name = self.combo_box.currentText()
+        config = self.callback_manager.config
+
+        def build_settings(title:str) -> dict:
+            pos_x = int(config[title].get("position", "0,0").split(",")[0])
+            pos_y = int(config[title].get("position", "0,0").split(",")[1])
+            w = int(config[title].get("size", "0,0").split(",")[0])
+            h = int(config[title].get("size", "0,0").split(",")[1])
+            is_topmost = config[title].get("always_on_top", "False").lower() == "true"
+            window_title = title
+            has_titlebar = config[title].get("titlebar", "True").lower() == "true"
+            return {
+                "position": f"{max(-10, pos_x)},{max(-10, pos_y)}",
+                "size": f"{max(250, w)},{max(250, h)}",
+                "always_on_top": str(is_topmost).lower(),
+                "titlebar": str(has_titlebar).lower(),
+                "original_title": window_title,
+                "name": clean_window_title(window_title, sanitize=True),
+                }
+
+
+        dlg = ConfigDialog(
+            self,
+            config.sections(),
+            self.config_manager.save_window_config,
+            build_settings,
+            self.callback_manager.update_config_list,
+            self.res_x, self.res_y,
+            assets_dir=getattr(self, "assets_dir", None),
+            config_manager=self.config_manager,
+            edit_mode= True,
+            config_name=config_name,
+            )
+        dlg.exec()
+
+
+
 class ConfigDialog(QDialog):
     """Dialog for creating and configuring window layouts."""
 
@@ -818,6 +860,8 @@ class ConfigDialog(QDialog):
         assets_dir: str,
         config_manager: object,
         max_windows: int = 4,
+        edit_mode: bool = False,
+        config_name: str = "",
     ) -> None:
         """Initialize the dialog with window selection and settings callbacks."""
         super().__init__(parent)
@@ -828,6 +872,7 @@ class ConfigDialog(QDialog):
         self.use_images = parent.use_images
         self.config_manager = parent.config_manager
         self.window_manager = parent.window_manager
+        self.config_name = config_name
 
         self.window_titles = window_titles
         self.save_callback = save_callback
@@ -848,6 +893,11 @@ class ConfigDialog(QDialog):
         self.auto_align_offsets = def_offsets
 
         main_layout = QVBoxLayout(self)
+
+
+        if edit_mode:
+            self.show_config_settings(self.window_titles)
+            return
 
         # --- Selection stage (Stage 1) ---
         self.selection_area = QWidget()
@@ -1015,7 +1065,7 @@ class ConfigDialog(QDialog):
         self.save_area = QWidget()
         save_layout = QHBoxLayout(self.save_area)
         save_layout.addWidget(QLabel("Config Name:"))
-        self.config_name_edit = QLineEdit()
+        self.config_name_edit = QLineEdit(self.config_name)
         save_layout.addWidget(self.config_name_edit)
         save_btn = QPushButton("Save Config")
         save_btn.setFixedSize(100,30)
