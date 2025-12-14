@@ -812,6 +812,7 @@ class PysideGuiManager(QMainWindow):
         config = self.callback_manager.config
 
         def build_settings(title:str) -> dict:
+            apply_order = config[title].get("apply_order", "")
             pos_x = int(config[title].get("position", "0,0").split(",")[0])
             pos_y = int(config[title].get("position", "0,0").split(",")[1])
             w = int(config[title].get("size", "0,0").split(",")[0])
@@ -820,6 +821,7 @@ class PysideGuiManager(QMainWindow):
             window_title = title
             has_titlebar = config[title].get("titlebar", "True").lower() == "true"
             return {
+                "apply_order": apply_order,
                 "position": f"{max(-10, pos_x)},{max(-10, pos_y)}",
                 "size": f"{max(250, w)},{max(250, h)}",
                 "always_on_top": str(is_topmost).lower(),
@@ -860,7 +862,7 @@ class ConfigDialog(QDialog):
         assets_dir: str,
         config_manager: object,
         max_windows: int = 4,
-        edit_mode: bool = False,
+        edit_mode: bool = False,  # noqa: FBT001, FBT002
         config_name: str = "",
     ) -> None:
         """Initialize the dialog with window selection and settings callbacks."""
@@ -894,8 +896,10 @@ class ConfigDialog(QDialog):
 
         main_layout = QVBoxLayout(self)
 
-
-        if edit_mode:
+        self.apply_order = []
+        self.edit_mode = edit_mode
+        if self.edit_mode:
+            self.apply_order = self._get_apply_order()
             self.show_config_settings(self.window_titles)
             return
 
@@ -928,6 +932,36 @@ class ConfigDialog(QDialog):
 
 
 
+    def _get_apply_order(self) -> list:
+        """Retrieve and validate the current apply order from config."""
+        settings = self.settings_callback("DEFAULT")
+
+        valid_labels = self.window_manager.default_apply_order
+        valid_labels = [label.title() for label in valid_labels if label]
+
+        apply_order = settings.get("apply_order", "").split(",")
+        apply_order = [label.title() for label in apply_order if label]
+
+        if not apply_order:
+            return valid_labels
+
+        # Remove duplicates and keep order
+        apply_order = list(dict.fromkeys(apply_order))
+
+        # Remove invalid labels
+        for label in apply_order:
+            if label not in valid_labels:
+                apply_order.remove(label)
+
+        # Add missing labels to the end
+        for label in valid_labels:
+            if label not in apply_order:
+                apply_order.append(label)
+
+        return apply_order
+
+
+
 
     def confirm_selection(self) -> None:
         """Validate selected windows and move to settings stage."""
@@ -953,7 +987,7 @@ class ConfigDialog(QDialog):
         self.show_config_settings(sorted_windows)
 
 
-    def _create_apply_order_list(self) -> QWidget:
+    def _create_apply_order_list(self, order: list | None = None) -> QWidget:
         listw = QListWidget()
         listw.setFlow(QListView.LeftToRight)
         listw.setDragDropMode(QAbstractItemView.InternalMove)
@@ -962,9 +996,7 @@ class ConfigDialog(QDialog):
         listw.setSpacing(5)
         listw.setFixedHeight(40)
 
-        order = self.window_manager.default_apply_order
-        if not order:
-            order = ["titlebar", "pos", "size", "aot"]
+        order = order or self.window_manager.default_apply_order
 
         for label in order:
             item = QListWidgetItem(label.capitalize())
@@ -1015,7 +1047,8 @@ class ConfigDialog(QDialog):
         self.settings_area = QWidget()
         settings_layout = QVBoxLayout(self.settings_area)
 
-        settings_layout.addWidget(self._create_apply_order_list())
+        apply_order = self._create_apply_order_list(self.apply_order)
+        settings_layout.addWidget(apply_order)
 
         # Rows container
         rows_container = QWidget()
@@ -1265,7 +1298,10 @@ class ConfigDialog(QDialog):
             self.settings_rows[title].get_values()["name"]
             for title in sorted_windows
         )
-        self.config_name_edit.setText(f"{config_name}_Grid{self.layout_number + 1}")
+        if not self.edit_mode:
+            self.config_name_edit.setText(
+                f"{clean_window_title(config_name)}_Grid{self.layout_number + 1}",
+                )
 
         self.ratio_label.setText(f"{self.preset_label_text} ")
 
@@ -1316,11 +1352,11 @@ class ConfigDialog(QDialog):
         clean_title = clean_window_title(
             sorted_windows[1], sanitize=True, titlecase=True,
             )
-
-        self.config_name_edit.setText(
-            f"{clean_title} ({numerator}-{denominator})(L_{weight_1.numerator}-"
-            f"{weight_1.denominator})(R_{weight_2.numerator}-{weight_2.denominator})",
-        )
+        if not self.edit_mode:
+            self.config_name_edit.setText(
+                f"{clean_title} ({numerator}-{denominator})(L_{weight_1.numerator}-"
+                f"{weight_1.denominator})(R_{weight_2.numerator}-{weight_2.denominator})",
+            )
 
         self.ratio_label.setText(
             f"{self.preset_label_text}"
@@ -1401,10 +1437,17 @@ class ConfigDialog(QDialog):
             titlebar=self._resolve_titlebar(override=rtbar, default=(aot != 1)),
         )
 
-        self.config_name_edit.setText(
-            f"{self.settings_rows[sorted_windows[aot]].get_values()['name']} "
-            f"{side}_{numerator}-{denominator}",
+        name = clean_window_title(
+            self.settings_rows[sorted_windows[aot]].get_values()["name"],
+            sanitize=True,
+            titlecase=True,
         )
+
+        if not self.edit_mode:
+            self.config_name_edit.setText(
+                f"{name} "
+                f"{side}_{numerator}-{denominator}",
+            )
 
         self.ratio_label.setText(
             f"{self.preset_label_text}"
@@ -1451,10 +1494,17 @@ class ConfigDialog(QDialog):
                 titlebar=self._resolve_titlebar(override=tbar, default=False),
             )
 
-        self.config_name_edit.setText(
-            f"{self.settings_rows[sorted_windows[0]].get_values()['name']} "
-            f"{side}_{numerator}-{denominator}",
-        )
+        name = clean_window_title(
+            self.settings_rows[sorted_windows[0]].get_values()["name"],
+            sanitize=True,
+            titlecase=True,
+            )
+
+        if not self.edit_mode:
+            self.config_name_edit.setText(
+                f"{name} "
+                f"{side}_{numerator}-{denominator}",
+            )
 
         self.ratio_label.setText(
             f"{self.preset_label_text}"
@@ -1780,8 +1830,10 @@ class ScreenLayoutWidget(QWidget):
         w = draw_params["w"]
         h = draw_params["h"]
         aot_text = "Yes" if win.always_on_top else "No"
+        title = win.search_title or win.name
+        title = clean_window_title(title, sanitize=False, titlecase=True)
         info_lines = [
-            f"{win.search_title or win.name} ",
+            f"{title} ",
             f"Pos: {win.pos_x}, {win.pos_y} " if self.window_details else "",
             f"Size: {win.width} x {win.height} " if self.window_details else "",
             f"AOT: {aot_text} " if self.window_details else "",

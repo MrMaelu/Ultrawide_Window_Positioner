@@ -9,7 +9,7 @@ import win32gui
 import win32process
 
 # Local imports
-from utils import WindowInfo, clean_window_title
+from utils import WindowInfo, match_titles
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +178,7 @@ class WindowManager:
                 _, pid = win32process.GetWindowThreadProcessId(hwnd)
                 p = psutil.Process(pid)
                 p.nice(psutil.ABOVE_NORMAL_PRIORITY_CLASS)
-            except Exception as e:
+            except Exception:
                 logger.exception("Error setting process priority for hwnd: %s", hwnd)
 
 
@@ -302,11 +302,10 @@ class WindowManager:
         all_titles = self.get_all_window_titles()
 
         for section in config.sections():
-            cleaned_section = clean_window_title(section, sanitize=True)
             hwnd = None
 
             for title in all_titles:
-                if clean_window_title(title, sanitize=True).startswith(cleaned_section):
+                if match_titles(section, title):
                     hwnd = win32gui.FindWindow(None, title)
                     break
 

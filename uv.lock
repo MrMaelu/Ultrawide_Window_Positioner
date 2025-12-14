@@ -3022,6 +3022,15 @@ wheels = [
 ]
 
 [[package]]
+name = "roman"
+version = "5.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9c/7c/3901b35ed856329bf98e84da8e5e0b4d899ea0027eee222f1be42a24ff3f/roman-5.2.tar.gz", hash = "sha256:275fe9f46290f7d0ffaea1c33251b92b8e463ace23660508ceef522e7587cb6f", size = 8185 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/10/14/ea3cdd7276fcd731a9003fe4abeb6b395a38110ddff6a6a509f4ee00f741/roman-5.2-py3-none-any.whl", hash = "sha256:89d3b47400388806d06ff77ea77c79ab080bc127820dea6bf34e1f1c1b8e676e", size = 6041 },
+]
+
+[[package]]
 name = "setuptools"
 version = "80.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3044,7 +3053,7 @@ wheels = [
 
 [[package]]
 name = "ultrawide-window-positioner"
-version = "1.0.0.1"
+version = "1.0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "customtkinter" },
@@ -3057,6 +3066,7 @@ dependencies = [
     { name = "pyside6" },
     { name = "pywin32" },
     { name = "requests" },
+    { name = "roman" },
 ]
 
 [package.metadata]
@@ -3071,6 +3081,7 @@ requires-dist = [
     { name = "pyside6", specifier = ">=6.9.1" },
     { name = "pywin32", specifier = ">=311" },
     { name = "requests", specifier = ">=2.32.4" },
+    { name = "roman", specifier = ">=5.2" },
 ]
 
 [[package]]

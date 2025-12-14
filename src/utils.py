@@ -2,6 +2,8 @@
 import re
 from dataclasses import dataclass
 
+import roman
+
 
 @dataclass
 class WindowInfo:
@@ -36,8 +38,10 @@ def clean_window_title(title:str, *, sanitize:bool=False, titlecase:bool=True)->
         title = re.sub(r'[<>:"/\\|?*\[\]]', "", title)
 
     if titlecase:
-        return title.title()
-    return title
+        return uppercase_roman_numerals(title.title())
+
+    return uppercase_roman_numerals(title)
+
 
 def invert_hex_color(hex_color:str)->str:
     """Calculate the inverse of the given color."""
@@ -63,4 +67,32 @@ def convert_hex_to_rgb(hex_color:str)->tuple[int, int, int]:
         return r, g, b
     return 0, 0, 0
 
+
+def uppercase_roman_numerals(text:str)->str:
+    """Convert lowercase roman numerals to uppercase in the given text."""
+    sections = text.split()
+    for i, section in enumerate(sections):
+        try:
+            roman.fromRoman(section)
+            sections[i] = section.upper()
+        except roman.InvalidRomanNumeralError:
+            pass
+    return " ".join(sections)
+
+
+def match_titles(section: str, title: str) -> bool:
+    """Return True when a window title matches a section name."""
+    if not section or not title:
+        return False
+
+    sc = clean_window_title(section, sanitize=True)
+    tc = clean_window_title(title, sanitize=True)
+
+    # Exact match
+    if tc == sc:
+        return True
+
+    # Prefix match that ensures a word boundary or the end follows the section
+    pattern = r"^" + re.escape(sc) + r"(\b|$)"
+    return bool(re.match(pattern, tc))
 

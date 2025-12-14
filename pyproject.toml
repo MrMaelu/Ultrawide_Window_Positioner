@@ -15,4 +15,5 @@ dependencies = [
     "pyside6>=6.9.1",
     "pywin32>=311",
     "requests>=2.32.4",
+    "roman>=5.2",
 ]

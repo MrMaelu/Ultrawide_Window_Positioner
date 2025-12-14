@@ -14,7 +14,7 @@ import win32gui
 from constants import AOT_HOTKEY, LayoutDefaults
 
 # Local imports
-from utils import clean_window_title
+from utils import clean_window_title, match_titles
 
 
 class ConfigManager:
@@ -160,40 +160,47 @@ class ConfigManager:
 
     def detect_default_config(self)->list:
         """Detect and return the best default configuration."""
-        config_files, config_names = self.list_config_files()
+        c_files, c_names = self.list_config_files()
         highest_matching_windows = [None, 0]
 
         all_titles = gw.getAllTitles()
-        cleaned_titles = [
-            clean_window_title(title, sanitize=True) for title in all_titles
-            ]
 
-        for config_file in config_files:
+        for file in c_files:
             matching_windows = 0
-            config = self.load_config(config_file)
+            config = self.load_config(file)
             if not config:
                 continue
 
-            for section in config.sections():
-                if config[section].getboolean("always_on_top", fallback=False):
-                    cleaned_section = clean_window_title(section, sanitize=True)
+            aot_sections = self._get_aot_sections(config)
+            for section in aot_sections:
+                for title in all_titles:
+                    if match_titles(section, title):
+                        return c_names[c_files.index(file)]
 
-                    for title in cleaned_titles:
-                        if cleaned_section in title and title.startswith(cleaned_section):
-                            return config_names[config_files.index(config_file)]
-                elif section in cleaned_titles:
-                    matching_windows += 1
+            if match_titles(section, title):
+                matching_windows += 1
 
             if matching_windows > highest_matching_windows[1]:
                 highest_matching_windows[0] = (
-                    config_names[config_files.index(config_file)]
+                    c_names[c_files.index(file)]
                     )
                 highest_matching_windows[1] = matching_windows
 
         if highest_matching_windows[0]:
             return highest_matching_windows[0]
 
-        return config_names[0] if config_names else None
+        return c_names[0] if c_names else None
+
+
+
+    def _get_aot_sections(self, config:object)->list:
+        """Get sections with always-on-top enabled."""
+        aot_sections = []
+        for section in config.sections():
+            if config[section].getboolean("always_on_top", fallback=False):
+                aot_sections.append(clean_window_title(section, sanitize=True))
+
+        return aot_sections
 
 
     def save_window_config(self,
