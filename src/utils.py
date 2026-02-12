@@ -1,8 +1,11 @@
 """Collection of utilities."""
 import re
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 import roman
+import win32api
 
 
 @dataclass
@@ -96,3 +99,33 @@ def match_titles(section: str, title: str) -> bool:
     pattern = r"^" + re.escape(sc) + r"(\b|$)"
     return bool(re.match(pattern, tc))
 
+
+def get_version() -> str:
+    """Read the application version from version.txt file."""
+    try:
+        if hasattr(__import__("sys"), "_MEIPASS"):
+            # Pyinstaller fix
+            exe = Path(sys.executable)
+            info = win32api.GetFileVersionInfo(str(exe), "\\")
+            ms = info["FileVersionMS"]
+            ls = info["FileVersionLS"]
+            version = (win32api.HIWORD(ms), win32api.LOWORD(ms),
+                    win32api.HIWORD(ls), win32api.LOWORD(ls))
+            return f"{version[0]}.{version[1]}.{version[2]}.{version[3]}"
+
+        version_file = Path(__file__).resolve().parent.parent / "version.txt"
+        if version_file.exists():
+            with Path.open(version_file, "r", encoding="utf-8") as f:
+                content = f.read()
+                # Extract filevers tuple: filevers=(1, 0, 3, 0)
+                match = re.search(
+                    r"filevers=\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)", content,
+                    )
+                if match:
+                    major, minor, patch, build = match.groups()
+                    # Ignore the build number, format as X.Y.Z
+                    return f"{major}.{minor}.{patch}"
+    except (OSError, AttributeError):
+        pass
+
+    return None

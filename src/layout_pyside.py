@@ -45,7 +45,13 @@ from callbacks import CallbackManager
 from constants import Colors, Fonts, Messages, UIConstants
 
 # Local imports
-from utils import WindowInfo, clean_window_title, convert_hex_to_rgb, invert_hex_color
+from utils import (
+    WindowInfo,
+    clean_window_title,
+    convert_hex_to_rgb,
+    get_version,
+    invert_hex_color,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -90,6 +96,13 @@ class PysideGuiManager(QMainWindow):
             self.hotkey, None, _cb(self.callbacks, "toggle_AOT"),
             )
         global_hotkeys.start_checking_hotkeys()
+
+        # Set window title with version
+        version = get_version()
+        if version:
+            self.setWindowTitle(f"Ultrawide Window Positioner v{version}")
+        else:
+            self.setWindowTitle("Ultrawide Window Positioner")
 
     # ---------------- Helper methods ----------------
     def _init_state(self, is_admin:int, initial_states:dict) -> None:
@@ -1041,7 +1054,7 @@ class ConfigDialog(QDialog):
         return container
 
 
-    def show_config_settings(self, sorted_windows: list) -> None:
+    def show_config_settings(self, sorted_windows: list) -> None:  # noqa: PLR0915
         """Display settings rows, controls, and layout preview for selected windows."""
         self.sorted_window = sorted_windows
         self.settings_area = QWidget()
