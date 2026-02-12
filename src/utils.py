@@ -124,7 +124,7 @@ def get_version() -> str:
                 if match:
                     major, minor, patch, build = match.groups()
                     # Ignore the build number, format as X.Y.Z
-                    return f"{major}.{minor}.{patch}"
+                    return f"{major}.{minor}.{patch}.{build}"
     except (OSError, AttributeError):
         pass
 

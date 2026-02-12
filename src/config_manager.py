@@ -178,8 +178,10 @@ class ConfigManager:
                     if match_titles(section, title):
                         full_match = c_names[c_files.index(file)]
 
-            if match_titles(section, title):
-                matching_windows += 1
+            for section in config.sections():
+                for title in all_titles:
+                    if match_titles(section, title):
+                        matching_windows += 1
 
             if matching_windows > highest_matching_windows[1]:
                 highest_matching_windows[0] = (
