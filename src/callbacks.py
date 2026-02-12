@@ -53,7 +53,7 @@ class CallbackManager:
             "toggle_images": self.toggle_images,
             "screenshot": self.take_screenshot,
             "snap": self.save_settings,
-            "auto_reapply": self.start_auto_reapply,
+            "auto_reapply": self.auto_reapply,
             "details": self._window_details,
             "detect_config": self.detect_config,
         }
@@ -176,7 +176,7 @@ class CallbackManager:
         for hwnd in self.window_manager.topmost_windows:
             self.window_manager.toggle_always_on_top(hwnd)
         self.update_always_on_top_status()
-        self.app.reapply = False
+        self.app.reapply_paused = not self.app.reapply_paused
 
 
     # Load new config when selecting an item from the dropdown
@@ -397,7 +397,7 @@ class CallbackManager:
 
     def auto_reapply(self)->None:
         """Update the window list and reapplies settings."""
-        if self.ui.get_reapply():
+        if self.ui.get_reapply() and not self.app.reapply_paused:
             matching_windows, _ = self.window_manager.find_matching_windows(
                 self.applied_config,
                 )
@@ -462,10 +462,6 @@ class CallbackManager:
             )
 
 
-    def start_auto_reapply(self)->None:
-        """Handle the auto reapply timer and loop."""
-        if self.ui.get_reapply():
-            self.auto_reapply()
 
 
     def compare_window_data(self, settings:object, metrics:list)->bool:
@@ -636,7 +632,7 @@ class UIAdapter:
         if self.ui_type == "pyside":
             return
         if self.ui_type == "ctk":
-            self.app.after(delay, self.parent.start_auto_reapply)
+            self.app.after(delay, self.parent.auto_reapply)
 
     def get_own_hwnd(self) -> int:
         """Get the HWND for the main GUI window."""

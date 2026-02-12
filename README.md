@@ -143,46 +143,4 @@ process_priority = false
 ## Multi-monitor use
 
 ### This application is made with ultrawide monitors in mind (32:9 / 21:9) and will work best on a single monitor setup.
-
-- For best results on multi-monitor the leftmost monitor should be set to main.
-
-### *Should* work well with similar monitors in a left to right setup, but only limited testing has been done:
-   ```
-   +-----------------------+ +-----------------------+ +-----------------------+
-   |                       | |                       | |                       |
-   |                       | |                       | |                       |
-   | Monitor 1 = 1920x1080 | | Monitor 2 = 1920x1080 | | Monitor 3 = 1920x1080 |
-   |                       | |                       | |                       |
-   |                       | |                       | |                       |
-   +-----------------------+ +-----------------------+ +-----------------------+
-   ```
-
-### It may ***not*** work well with:
-#### Multi-monitor setups with different resolutions.
-   ```
-   +-----------------------+ 
-   |                       | +---------------------+
-   |                       | |                     |
-   | Monitor 1             | | Monitor 2           |
-   | 1920x1080             | | 1280x1024           |
-   |                       | |                     |
-   +-----------------------+ +---------------------+
-   ```
-
-#### Multi-monitor setups with vertical positioning.
-   ```
-   +-----------------------+ 
-   |                       |
-   |                       |
-   | Monitor 1 = 1920x1080 |
-   |                       |
-   |                       |
-   +-----------------------+
-   +-----------------------+ 
-   |                       |
-   |                       |
-   | Monitor 2 = 1920x1080 |
-   |                       |
-   |                       |
-   +-----------------------+
-   ```
+### It will apply the settings on the primary monitor only

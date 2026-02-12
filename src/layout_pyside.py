@@ -99,6 +99,8 @@ class PysideGuiManager(QMainWindow):
         self.use_images = bool(initial_states["use_images"])
         self.snap = initial_states["snap_side"]
         self.details = bool(initial_states["details"])
+        self.reapply = False
+        self.reapply_paused = False
         self.hotkey = initial_states["hotkey"]
         self.style_dark = True
         self.ctk_theme_bg = None
@@ -731,6 +733,7 @@ class PysideGuiManager(QMainWindow):
 
     def _on_reapply_toggle(self)->None:
         self.reapply = self.auto_apply_switch.isChecked()
+        self.reapply_paused = False
 
 
     def _on_details_toggle(self)->None:
@@ -763,7 +766,7 @@ class PysideGuiManager(QMainWindow):
     def reapply_timer(self)->None:
         """Timer for auto reapply."""
         self.timer = QTimer(self)
-        self.timer.timeout.connect(self.callback_manager.start_auto_reapply)
+        self.timer.timeout.connect(self.callback_manager.auto_reapply)
         self.timer.start(500)
 
 
@@ -961,8 +964,6 @@ class ConfigDialog(QDialog):
         return apply_order
 
 
-
-
     def confirm_selection(self) -> None:
         """Validate selected windows and move to settings stage."""
         selected = [t for t, cb in self.switches.items() if cb.isChecked()]
@@ -1038,7 +1039,6 @@ class ConfigDialog(QDialog):
         self.apply_order_list = listw
 
         return container
-
 
 
     def show_config_settings(self, sorted_windows: list) -> None:
@@ -1146,7 +1146,6 @@ class ConfigDialog(QDialog):
             self.sorted_window.insert(new_index, title)
 
             self.update_layout_frame()
-
 
 
     def gather_windows(self)->list:

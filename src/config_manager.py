@@ -162,6 +162,7 @@ class ConfigManager:
         """Detect and return the best default configuration."""
         c_files, c_names = self.list_config_files()
         highest_matching_windows = [None, 0]
+        full_match = ""
 
         all_titles = gw.getAllTitles()
 
@@ -175,7 +176,7 @@ class ConfigManager:
             for section in aot_sections:
                 for title in all_titles:
                     if match_titles(section, title):
-                        return c_names[c_files.index(file)]
+                        full_match = c_names[c_files.index(file)]
 
             if match_titles(section, title):
                 matching_windows += 1
@@ -185,6 +186,9 @@ class ConfigManager:
                     c_names[c_files.index(file)]
                     )
                 highest_matching_windows[1] = matching_windows
+
+        if full_match:
+            return full_match
 
         if highest_matching_windows[0]:
             return highest_matching_windows[0]
