@@ -13,6 +13,7 @@ from PySide6.QtGui import (
     QBrush,
     QColor,
     QFont,
+    QIcon,
     QPainter,
     QPen,
     QPixmap,
@@ -103,6 +104,8 @@ class PysideGuiManager(QMainWindow):
             self.setWindowTitle(f"Ultrawide Window Positioner v{version}")
         else:
             self.setWindowTitle("Ultrawide Window Positioner")
+
+        self.setWindowIcon(QIcon(str(Path(__file__).parent.parent / "Icon.ico")))
 
     # ---------------- Helper methods ----------------
     def _init_state(self, is_admin:int, initial_states:dict) -> None:
@@ -745,8 +748,8 @@ class PysideGuiManager(QMainWindow):
 
 
     def _on_reapply_toggle(self)->None:
-        self.reapply = self.auto_apply_switch.isChecked()
         self.reapply_paused = False
+        self.reapply = self.auto_apply_switch.isChecked()
 
 
     def _on_details_toggle(self)->None:

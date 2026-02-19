@@ -39,6 +39,11 @@ class CallbackManager:
         self.applied_config = None
         self.compact = False
 
+        self.apply_thread_running = False
+        self.reapply_last_pause = False
+        self.reapply_last_enabled = False
+        self.reapply_last_matching_windows = []
+
         self.callbacks = {
             "apply_config": self.apply_settings_threaded,
             "create_config": self.create_config,
@@ -89,7 +94,6 @@ class CallbackManager:
             matching_windows, _ = (
                 self.window_manager.find_matching_windows(self.applied_config)
                 )
-            self.window_manager.reset_all_windows()
 
             # Apply configuration
             for match in matching_windows:
@@ -127,7 +131,6 @@ class CallbackManager:
                         fallback="",
                         ),
                 }
-
                 self.window_manager.apply_window_config(settings, hwnd)
 
         self.update_always_on_top_status()
@@ -136,8 +139,12 @@ class CallbackManager:
             selected_config_shortname=selected_config_shortname,
             )
 
+        self.apply_thread_running = False
+
+
     def apply_settings_threaded(self)->None:
         """Start a separate thread for applying config."""
+        self.apply_thread_running = True
         threading.Thread(target=self.apply_settings, daemon=True).start()
 
 
@@ -395,45 +402,120 @@ class CallbackManager:
             self.apply_settings()
 
 
+    def _check_reapply_conditions(self)->bool:
+        conditions = [
+            f"Paused: {self.app.reapply_paused}",
+            f"Enabled: {self.ui.get_reapply()}",
+            ]
+
+        if self.apply_thread_running:
+            # Debugging output
+            print("\nApply thread is currently running, skipping reapply.")  # noqa: T201
+            return False
+
+        if not self.app.config_active:
+            return False
+
+        if self.app.reapply_paused:
+            if not self.reapply_last_pause:
+                self.reapply_last_pause = True
+                # Debugging output
+                print("\nAuto-reapply is paused, skipping reapply.")  # noqa: T201
+                print(conditions)  # noqa: T201
+            return False
+
+        if not self.ui.get_reapply():
+            if self.reapply_last_enabled:
+                self.reapply_last_enabled = False
+                # Debugging output
+                print("\nAuto-reapply is disabled, skipping reapply.")  # noqa: T201
+                print(conditions)  # noqa: T201
+            return False
+
+        if not self.reapply_last_enabled:
+            self.reapply_last_enabled = True
+            self.reapply_last_matching_windows = []
+            # Debugging output
+            print("\nAuto-reapply is enabled, starting reapply.")  # noqa: T201
+            print(conditions)  # noqa: T201
+
+        if self.reapply_last_pause:
+            self.reapply_last_pause = False
+            self.reapply_last_matching_windows = []
+            # Debugging output
+            print("\nAuto-reapply is unpaused, resuming reapply.")  # noqa: T201
+            print(conditions)  # noqa: T201
+
+        return True
+
+
+
     def auto_reapply(self)->None:
         """Update the window list and reapplies settings."""
-        if self.ui.get_reapply() and not self.app.reapply_paused:
-            matching_windows, _ = self.window_manager.find_matching_windows(
-                self.applied_config,
-                )
-            compare_results = []
-            for match in matching_windows:
-                hwnd = match["hwnd"]
-                section = match["config_name"]
+        if not self._check_reapply_conditions():
+            return
 
-                # Get window settings from config
-                settings = {
-                    "position": self.applied_config.get(
-                        section,
-                        "position",
-                        fallback=None,
-                        ),
-                    "size": self.applied_config.get(
-                        section,
-                        "size",
-                        fallback=None,
-                        ),
-                    "always_on_top": self.applied_config.getboolean(
-                        section,
-                        "always_on_top",
-                        fallback=False,
-                        ),
-                    "has_titlebar": self.applied_config.getboolean(
-                        section,
-                        "titlebar",
-                        fallback=True,
-                        ),
-                }
+        matching_windows, missing = self.window_manager.find_matching_windows(
+            self.applied_config,
+            )
 
-                metrics = self.window_manager.get_window_metrics(hwnd)
-                compare_results.append(self.compare_window_data(settings, metrics))
-            if not all(compare_results):
-                self.apply_settings(reapply=True)
+        # For debugging: print matching, missing and all detected windows
+        # when a change is detected.
+        all_windows = self.window_manager.get_all_window_titles()
+
+        if not matching_windows:
+            if matching_windows != self.reapply_last_matching_windows:
+                # Debugging output
+                print("\nAuto-reapply found no matching windows.") # noqa: T201
+                print(f"Missing windows: {missing}") # noqa: T201
+                print(f"All windows: {all_windows}") # noqa: T201
+            return
+
+        if matching_windows != self.reapply_last_matching_windows:
+            # Debugging output
+            print(f"\nAuto-reapply new matching windows: {matching_windows}") # noqa: T201
+            print(f"Missing windows: {missing}") # noqa: T201
+            print(f"All windows: {all_windows}") # noqa: T201
+            self.reapply_last_matching_windows = matching_windows
+
+
+        compare_results = []
+        for match in matching_windows:
+            hwnd = match["hwnd"]
+            section = match["config_name"]
+
+            # Get window settings from config
+            settings = {
+                "position": self.applied_config.get(
+                    section,
+                    "position",
+                    fallback=None,
+                    ),
+                "size": self.applied_config.get(
+                    section,
+                    "size",
+                    fallback=None,
+                    ),
+                "always_on_top": self.applied_config.getboolean(
+                    section,
+                    "always_on_top",
+                    fallback=False,
+                    ),
+                "has_titlebar": self.applied_config.getboolean(
+                    section,
+                    "titlebar",
+                    fallback=True,
+                    ),
+            }
+
+            metrics = self.window_manager.get_window_metrics(hwnd)
+            compare_results.append(self.compare_window_data(settings, metrics))
+        if not all(compare_results):
+            # Sleep 500 ms before reapplying to avoid potential issues with windows
+            # that are in the process of opening or closing
+            self.apply_thread_running = True
+            threading.Timer(0.5, self.apply_settings, kwargs={"reapply": True}).start()
+
 
 
     # Toggles window details text overlay
@@ -471,6 +553,7 @@ class CallbackManager:
         settings_pos = tuple(
             map(int, settings["position"].split(",")),
             ) if settings["position"] else (0, 0)
+
         if settings_pos != metrics["position"]:
             differences.append(
                 f"Position mismatch: Settings={settings_pos}, "
@@ -480,6 +563,7 @@ class CallbackManager:
         settings_size = tuple(
             map(int, settings["size"].split(",")),
             ) if settings["size"] else (0, 0)
+
         if settings_size != metrics["size"]:
             differences.append(
                 f"Size mismatch: Settings={settings_size}, Metrics={metrics['size']}",
@@ -487,6 +571,7 @@ class CallbackManager:
 
         settings_aot = settings["always_on_top"]
         metrics_aot = (metrics["exstyle"] & 0x00000008) != 0
+
         if settings_aot != metrics_aot:
             differences.append(
                 f"Always on top mismatch: Settings={settings_aot}, "
@@ -495,6 +580,7 @@ class CallbackManager:
 
         settings_titlebar = settings["has_titlebar"]
         metrics_titlebar = (metrics["style"] & 0x00C00000) != 0
+
         if settings_titlebar != metrics_titlebar:
             differences.append(f"Titlebar mismatch: Settings={settings_titlebar}, "
                                f"Metrics={metrics_titlebar}",

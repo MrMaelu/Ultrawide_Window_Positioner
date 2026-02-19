@@ -57,6 +57,7 @@ def invert_hex_color(hex_color:str)->str:
     # Format back to hex
     return f"#{r_inv:02X}{g_inv:02X}{b_inv:02X}"
 
+
 def convert_hex_to_rgb(hex_color:str)->tuple[int, int, int]:
     """Convert hex string to rgb int."""
     hex_length = 6
@@ -83,21 +84,43 @@ def uppercase_roman_numerals(text:str)->str:
     return " ".join(sections)
 
 
-def match_titles(section: str, title: str) -> bool:
-    """Return True when a window title matches a section name."""
-    if not section or not title:
+def match_titles(
+        sections: list, titles: list,
+        *, get_titles: bool = False,
+        ) -> bool | dict:
+    """Compare two lists for matching titles.
+
+    Return True when a window title match a section name.
+    If get_titles is True, return a dict of section: title match.
+    """
+    if not sections or not titles:
         return False
 
-    sc = clean_window_title(section, sanitize=True)
-    tc = clean_window_title(title, sanitize=True)
+    title_matches = {}
+    for title in titles:
+        for section in sections:
+            sc = clean_window_title(section, sanitize=True)
+            tc = clean_window_title(title, sanitize=True)
 
-    # Exact match
-    if tc == sc:
-        return True
+            # Exact match
+            if sc == tc:
+                if get_titles:
+                    title_matches[section] = title
+                else:
+                    return True
 
-    # Prefix match that ensures a word boundary or the end follows the section
-    pattern = r"^" + re.escape(sc) + r"(\b|$)"
-    return bool(re.match(pattern, tc))
+            # Prefix match that ensures a word boundary or the end follows the section
+            pattern = r"^" + re.escape(sc) + r"(\b|$)"
+            if bool(re.match(pattern, tc)):
+                if get_titles:
+                    title_matches[section] = title
+                else:
+                    return True
+
+    if get_titles:
+        return title_matches
+
+    return False
 
 
 def get_version() -> str:
@@ -123,9 +146,9 @@ def get_version() -> str:
                     )
                 if match:
                     major, minor, patch, build = match.groups()
-                    # Ignore the build number, format as X.Y.Z
                     return f"{major}.{minor}.{patch}.{build}"
     except (OSError, AttributeError):
         pass
 
     return None
+

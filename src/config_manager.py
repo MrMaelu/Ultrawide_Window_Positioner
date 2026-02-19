@@ -173,15 +173,11 @@ class ConfigManager:
                 continue
 
             aot_sections = self._get_aot_sections(config)
-            for section in aot_sections:
-                for title in all_titles:
-                    if match_titles(section, title):
-                        full_match = c_names[c_files.index(file)]
+            if match_titles(aot_sections, all_titles):
+                full_match = c_names[c_files.index(file)]
 
-            for section in config.sections():
-                for title in all_titles:
-                    if match_titles(section, title):
-                        matching_windows += 1
+            match_list = match_titles(config.sections(), all_titles, get_titles=True)
+            matching_windows = len(match_list)
 
             if matching_windows > highest_matching_windows[1]:
                 highest_matching_windows[0] = (
@@ -204,7 +200,7 @@ class ConfigManager:
         aot_sections = []
         for section in config.sections():
             if config[section].getboolean("always_on_top", fallback=False):
-                aot_sections.append(clean_window_title(section, sanitize=True))
+                aot_sections.append(clean_window_title(section, sanitize=True))  # noqa: PERF401
 
         return aot_sections
 
@@ -278,7 +274,7 @@ class ConfigManager:
                           & win32con.WS_CAPTION)
             is_topmost = (window._hWnd == win32gui.GetForegroundWindow())  # noqa: SLF001
             return {
-                "position": f"{max(-10, window.left)},{max(-10, window.top)}",
+                "position": f"{max(-50, window.left + 50)},{max(-50, window.top + 50)}",
                 "size": f"{max(250, window.width)},{max(250, window.height)}",
                 "always_on_top": str(is_topmost).lower(),
                 "titlebar": str(has_titlebar).lower(),

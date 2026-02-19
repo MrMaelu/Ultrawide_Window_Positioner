@@ -4,6 +4,7 @@ import time
 from ast import literal_eval
 
 import psutil
+import win32api
 import win32con
 import win32gui
 import win32process
@@ -46,18 +47,23 @@ class WindowManager:
                 if isinstance(config, dict):
                     # Get configuration values
                     has_titlebar = config.get("has_titlebar", True)
-                    if config.get("position"):
-                        position = (
-                            literal_eval(config["position"])
-                            if isinstance(config["position"], str)
-                            else config["position"]
-                            )
-                    if config.get("size"):
-                        size = (
-                            literal_eval(config["size"])
-                            if isinstance(config["size"], str)
-                            else config["size"]
-                            )
+
+                    size = (
+                        literal_eval(config["size"])
+                        if isinstance(config["size"], str)
+                        else config["size"]
+                        ) or (100, 100)
+
+                    position = (
+                        literal_eval(config["position"])
+                        if isinstance(config["position"], str)
+                        else config["position"]
+                        )
+
+                    if not position:
+                        scr_w = win32api.GetSystemMetrics(win32con.SM_CXSCREEN)
+                        scr_h = win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
+                        position = ((scr_w - size[0]) // 2, (scr_h - size[1]) // 2)
 
                     always_on_top = config.get("always_on_top", False)
                     process_priority = config.get("process_priority", False)
@@ -231,7 +237,6 @@ class WindowManager:
 
 
 
-
 # Other functions
 
     def get_always_on_top_status(self)->str:
@@ -301,22 +306,19 @@ class WindowManager:
 
         all_titles = self.get_all_window_titles()
 
-        for section in config.sections():
-            hwnd = None
+        titles_matches = match_titles(config.sections(), all_titles, get_titles=True)
+        missing_windows = list(set(config.sections()) - set(titles_matches.keys()))
 
-            for title in all_titles:
-                if match_titles(section, title):
-                    hwnd = win32gui.FindWindow(None, title)
-                    break
-
-            if hwnd:
-                matching_windows.append({
-                    "config_name": section,
-                    "hwnd": hwnd,
-                })
-            else:
-                missing_windows.append(section)
-
+        if titles_matches:
+            for title in titles_matches:
+                hwnd = win32gui.FindWindow(None, titles_matches[title])
+                if hwnd:
+                    matching_windows.append({
+                        "config_name": title,
+                        "hwnd": hwnd,
+                    })
+                else:
+                    missing_windows.append(title)
         return matching_windows, missing_windows
 
 
@@ -440,9 +442,3 @@ class WindowManager:
             )
 
         return positioned_windows
-
-
-
-
-
-
