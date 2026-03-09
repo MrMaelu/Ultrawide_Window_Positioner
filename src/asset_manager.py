@@ -6,7 +6,6 @@ from pathlib import Path
 
 import mss
 import requests
-import win32con
 import win32gui
 from PIL import Image
 
@@ -230,30 +229,6 @@ class AssetManager:
             img = Image.open(path)
             img.thumbnail(self.COMPRESSION)
             img.save(path)
-
-    def bring_to_front(self, hwnd:int) -> None:
-        """Bring selected window to front."""
-        try:
-            if not win32gui.IsWindow(hwnd):
-                return
-            # Restore if minimized
-            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-            # Push to the very top (above everything else)
-            win32gui.SetWindowPos(
-                hwnd,
-                win32con.HWND_TOPMOST,
-                0, 0, 0, 0,
-                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE,
-            )
-            # Immediately remove always-on-top so normal stacking returns
-            win32gui.SetWindowPos(
-                hwnd,
-                win32con.HWND_NOTOPMOST,
-                0, 0, 0, 0,
-                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE,
-            )
-        except (win32gui.error, win32con.ERROR):
-            pass
 
     def get_window_rect(self, hwnd:int) -> None:
         """Get the selected windows rect parameters."""

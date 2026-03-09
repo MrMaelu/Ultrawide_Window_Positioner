@@ -686,7 +686,6 @@ class PysideGuiManager(QMainWindow):
             self.apply_config_button.setEnabled(True)
             self.info_label.setText("")
             self.aot_button.setEnabled(False)
-            self.reapply = False
 
 
     def format_admin_button(self, *, admin_enabled: bool)->None:
@@ -839,12 +838,14 @@ class PysideGuiManager(QMainWindow):
             is_topmost = config[title].get("always_on_top", "False").lower() == "true"
             window_title = title
             has_titlebar = config[title].get("titlebar", "True").lower() == "true"
+            ignore_list = config["DEFAULT"].get("ignore_list", "")
             return {
                 "apply_order": apply_order,
                 "position": f"{max(-10, pos_x)},{max(-10, pos_y)}",
                 "size": f"{max(250, w)},{max(250, h)}",
                 "always_on_top": str(is_topmost).lower(),
                 "titlebar": str(has_titlebar).lower(),
+                "ignore_list": ignore_list,
                 "original_title": window_title,
                 "name": clean_window_title(window_title, sanitize=True),
                 }
@@ -1084,6 +1085,14 @@ class ConfigDialog(QDialog):
             self.row_to_title[row] = title
 
         settings_layout.addWidget(rows_container, stretch=0)
+
+        ignore_list = ""
+        if self.edit_mode:
+            ignore_list = self.settings_callback("DEFAULT").get("ignore_list", "")
+        ignore_label = QLabel("List of titles to not match (comma separated):")
+        self.ignore_edit = QLineEdit(ignore_list)
+        settings_layout.addWidget(ignore_label)
+        settings_layout.addWidget(self.ignore_edit)
 
         # Controls
         controls = QHBoxLayout()
@@ -1564,7 +1573,9 @@ class ConfigDialog(QDialog):
             for i in range(self.apply_order_list.count())
             ]
 
-        if self.save_callback(name, config_data, apply_order):
+        ignore_list = self.ignore_edit.text().strip().split(",") or []
+
+        if self.save_callback(name, config_data, apply_order, ignore_list):
             if self.refresh_callback:
                 self.refresh_callback(name)
             self.accept()
@@ -1701,19 +1712,16 @@ class ScreenLayoutWidget(QWidget):
 
     def wheelEvent(self, event:None) -> None:  # noqa: N802
         """Override for wheelEvent."""
-        try:
-            combo = self.parent.combo_box
-            delta = event.angleDelta().y()
-            current = combo.currentIndex()
+        combo = self.parent.combo_box
+        delta = event.angleDelta().y()
+        current = combo.currentIndex()
 
-            if delta > 0:  # scroll up
-                new_index = max(0, current - 1)
-            else:          # scroll down
-                new_index = min(combo.count() - 1, current + 1)
+        if delta > 0:  # scroll up
+            new_index = max(0, current - 1)
+        else:          # scroll down
+            new_index = min(combo.count() - 1, current + 1)
 
-            combo.setCurrentIndex(new_index)
-        except AttributeError:
-            pass
+        combo.setCurrentIndex(new_index)
 
 
     def draw_layout(self, painter:object, width:int, height:int) -> None:

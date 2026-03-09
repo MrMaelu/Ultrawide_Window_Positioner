@@ -5,9 +5,9 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QApplication
 
-from asset_manager import AssetManager
-
 # Local imports
+import log_handler
+from asset_manager import AssetManager
 from config_manager import ConfigManager
 from layout_pyside import PysideGuiManager
 
@@ -24,41 +24,29 @@ def load_pyside_gui()->None:
         asset_manager=asset_manager,
     )
 
-    set_default_config(win)
+    # Set default config
+    win.callback_manager.detect_config()
 
     # Run
     win.show()
     sys.exit(app.exec())
 
 
-def set_default_config(app:object)->None:
-    """Set the default config at startup."""
-    callback_manager = app.callback_manager
-    callback_manager.detect_config()
-
-
-
-
 if __name__ == "__main__":
     if getattr(sys, "frozen", False):
-        # Running from a bundled exe (PyInstaller, cx_Freeze, etc.)
+        # Running from a bundled exe (PyInstaller)
         base_path = Path(sys.executable).resolve().parent
     else:
-        try:
-            base_path = Path(__file__).resolve().parent
-        except NameError:
-            # __file__ not defined (interactive session)
-            base_path = Path.cwd()
+        base_path = Path(__file__).resolve().parent
+
+    log_handler.setup_logging()
 
     # Set up managers
     config_manager = ConfigManager(base_path)
     asset_manager = AssetManager(base_path)
 
     # Check for admin rights
-    try:
-        is_admin = windll.shell32.IsUserAnAdmin()
-    except:  # noqa: E722
-        is_admin = False
+    is_admin = windll.shell32.IsUserAnAdmin() != 0
 
     # Load config
     compact, use_images, snap_side , details, hotkey = config_manager.load_settings()

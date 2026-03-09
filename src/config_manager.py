@@ -3,6 +3,7 @@ import ast
 import configparser
 import contextlib
 import json
+import logging
 import os
 import re
 from pathlib import Path
@@ -16,6 +17,12 @@ from constants import AOT_HOTKEY, LayoutDefaults
 # Local imports
 from utils import clean_window_title, match_titles
 
+logging.basicConfig(
+    level=logging.INFO,
+    filename="uwp_debug.log",
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    )
+logger = logging.getLogger(__name__)
 
 class ConfigManager:
     """Configuration manager."""
@@ -209,6 +216,7 @@ class ConfigManager:
                            config_name:str,
                            window_data:list,
                            apply_order:list,
+                           ignore_list:list | None =None,
                            )->bool:
         """Save config."""
         if not config_name:
@@ -250,6 +258,9 @@ class ConfigManager:
         if apply_order:
             config["DEFAULT"]["apply_order"] = ",".join(apply_order)
 
+        if ignore_list:
+            config["DEFAULT"]["ignore_list"] = ",".join(ignore_list)
+
         validated_config = self.validate_and_repair_config(config)
 
         if not Path.is_dir(self.config_dir):
@@ -267,37 +278,31 @@ class ConfigManager:
 
     def collect_window_settings(self, window_title:str)->dict|None:
         """Get settings for a window."""
-        try:
-            window = gw.getWindowsWithTitle(window_title)[0]
-            # Get the current window state
-            has_titlebar = bool(win32gui.GetWindowLong(window._hWnd, win32con.GWL_STYLE)  # noqa: SLF001
-                          & win32con.WS_CAPTION)
-            is_topmost = (window._hWnd == win32gui.GetForegroundWindow())  # noqa: SLF001
-            return {
-                "position": f"{max(-50, window.left + 50)},{max(-50, window.top + 50)}",
-                "size": f"{max(250, window.width)},{max(250, window.height)}",
-                "always_on_top": str(is_topmost).lower(),
-                "titlebar": str(has_titlebar).lower(),
-                "original_title": window_title,
-                "name": clean_window_title(window_title, sanitize=True),
-            }
-        except (win32gui.error):
-            return None
+        window = gw.getWindowsWithTitle(window_title)[0]
+        # Get the current window state
+        has_titlebar = bool(win32gui.GetWindowLong(window._hWnd, win32con.GWL_STYLE)  # noqa: SLF001
+                        & win32con.WS_CAPTION)
+        is_topmost = (window._hWnd == win32gui.GetForegroundWindow())  # noqa: SLF001
+        return {
+            "position": f"{max(-50, window.left + 50)},{max(-50, window.top + 50)}",
+            "size": f"{max(250, window.width)},{max(250, window.height)}",
+            "always_on_top": str(is_topmost).lower(),
+            "titlebar": str(has_titlebar).lower(),
+            "original_title": window_title,
+            "name": clean_window_title(window_title, sanitize=True),
+        }
 
 
     def delete_config(self, name:str)->bool:
         """Delete a config file."""
-        try:
-            path = Path(self.config_dir, f"config_{name}.ini")
-            if Path.exists(path):
-                Path.unlink(path)
-                return True
-        except PermissionError:
-            pass
+        path = Path(self.config_dir, f"config_{name}.ini")
+        if Path.exists(path):
+            Path.unlink(path)
+            return True
         return False
 
 
-    def validate_and_repair_config(self, config:str)->object:  # noqa: C901
+    def validate_and_repair_config(self, config:str)->object:  # noqa: C901, PLR0912
         """Validate and repair a config file."""
         repaired_config = configparser.ConfigParser()
         repaired_config.optionxform = str
@@ -314,7 +319,7 @@ class ConfigManager:
                         )
                 elif key == "size":
                     valid_items[key] = (
-                        value if re.match(r"^\d+,\d+$", value) else "100,100"
+                        value if re.match(r"^\d+,\d+$", value) else "800,600"
                         )
                 elif key == "always_on_top":
                     valid_items[key] = (
@@ -343,28 +348,30 @@ class ConfigManager:
                 config.get("DEFAULT", "apply_order")
                 )
 
+        if config.has_option("DEFAULT", "ignore_list"):
+            repaired_config["DEFAULT"]["ignore_list"] = (
+                config.get("DEFAULT", "ignore_list")
+                )
+
         return repaired_config
 
 
     def update_rawg_url(self, title:str, rawg_url:str)->bool:
         """Update the RAWG URL for a title."""
-        try:
-            config = configparser.ConfigParser()
-            config_files, config_names = self.list_config_files()
-            for config_file in config_files:
-                full_path = Path(self.config_dir, config_file)
-                if not Path.exists(full_path):
-                    continue
-                config.read(full_path)
-                if not config.has_section(title):
-                    config.add_section(title)
+        config = configparser.ConfigParser()
+        config_files, _config_names = self.list_config_files()
+        for config_file in config_files:
+            full_path = Path(self.config_dir, config_file)
+            if not Path.exists(full_path):
+                continue
+            config.read(full_path)
+            if not config.has_section(title):
+                config.add_section(title)
 
-                config.set(title, "rawg_url", rawg_url)
+            config.set(title, "rawg_url", rawg_url)
 
-                with Path.open(config_file, "w") as f:
-                    config.write(f)
-                return True
-        except (PermissionError, FileNotFoundError):
-            return False
-
+            with Path.open(config_file, "w") as f:
+                config.write(f)
+            return True
+        return False
 
