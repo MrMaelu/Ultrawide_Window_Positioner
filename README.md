@@ -14,12 +14,13 @@
 #### - Visual preview of the selected configuration's layout.
 #### - Multiple presets available for window layout, as well as manual adjustments.
 #### - Optional screenshot view mode.
-- Screenshots can be taken using the "Take screenshots" button, or automatically downloaded from IGDB or RAWG using the "Download images" button. (API key needed for IGDB/RAWG.)
+- Screenshots can be taken using the "Take screenshots" button
 - You can also manually add your own screenshots to the image folder.
 #### - Toggle Always-on-Top state specifically for windows managed by the *currently applied config*.
 #### - Set higher process priority for selected applications. (sets it to "above normal".)
 #### - Support for multiple configuration files.
 #### - Config creation through GUI.
+#### - Config edit through GUI.
 #### - Compact GUI mode available.
 #### - Configurable overrides per application available in ```layout_config.ini```
 
@@ -69,34 +70,35 @@
 3. Click "Yes" in the confirmation window
 - You can also manually delete the files from the config folder
 
-### Manually edit settings
-1. Click the "Open Config Folder" button
-2. Open the config file you want to edit in notepad and adjust values
-3. Save the config file and close notepad
-- Useful for adding search_title override (pending adding this feature to config creation GUI)
+### Edit settings
+1. Click the "Edit Config" button
+2. Change the settings as you would when creating a new config
+3. Save the config
 
 ### Compact mode
 - Click the "Toggle compact" to switch between full and compact mode
 
-### Take screenshots
+### Take config screenshots
 - This button will take a screenshot of all detected windows from the currently selected configuration and use them for the GUI
 
-### Download images
-- This button will download screentshots from IGDB and use them for the GUI
-- The "Download images" function requires IGDB Client ID and Client Secret to work. These are not included.
+### Download images (removed feature)
+- This feature has been removed
 
 ### Toggle images
 - Switch between basic and screenshot layout
 
 ### Snap application on open
 - You can set the application to open snapped to either edge of the screen instead of centered.
-- This can be used to avoid opening the application behind a always-on-top window.
+- This can be used to avoid opening the application behind an always-on-top window.
 
 ### Auto-reapply
 - Setting this will automatically reapply the current window settings if a change is detected.
-- Useful for games that has a lobby and lauches a new game window per match, for example League of Legends.
+- Useful for games that has a lobby and launches a new game window per match, for example League of Legends.
 
-## Configuration Format (***'config_\<name\>.ini'***):
+## Configuration Files
+The files can be found in the "configs" folder in the same folder as the executable.
+
+### Configuration Format (***'config_\<name\>.ini'***):
 ```
 [Window Title]
 apply_order = Titlebar,Pos,Size,Aot # Set the order for applying settings

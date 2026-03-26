@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from configparser import ConfigParser
-from datetime import datetime
 import logging
 import subprocess
 import sys
@@ -14,33 +12,67 @@ from time import sleep
 from typing import TYPE_CHECKING
 
 import global_hotkeys
-
-from PySide6.QtCore import QRect, QSize, Qt, QTimer, QObject
+from PySide6.QtCore import QObject, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QFont, QIcon, QPainter, QPen, QPixmap, QWheelEvent
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QBoxLayout, QButtonGroup, QCheckBox, QComboBox, QDialog, QHBoxLayout, QLabel,
-    QLineEdit, QListView, QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QPushButton, QRadioButton,
-    QSizePolicy, QTextEdit, QVBoxLayout, QWidget
+    QAbstractItemView,
+    QApplication,
+    QBoxLayout,
+    QButtonGroup,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListView,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QRadioButton,
+    QSizePolicy,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+from uwp_config import (
+    ConfigManager,
+    config_to_dict,
+    get_ignore_list,
+    get_window_settings_from_config,
 )
 
 # Local imports
-from constants import Colors, Fonts, Messages, UIConstants
-from utils import (WindowInfo,
-                   clean_window_title, convert_hex_to_rgb, get_version, invert_hex_color,
-                   to_bool, validate_int_pair, restart_as_admin,
-                   )
-from uwp_config import (ConfigManager,
-                        get_window_settings_from_config, get_ignore_list, config_to_dict,
-                        )
-from uwp_window_control import (WindowManager,
-                                find_matching_windows, get_window_metrics, get_windows_for_layout, capture_window,
-                                bring_to_front, get_all_window_titles, collect_window_settings,
-                                )
+from uwp_constants import Colors, Fonts, Messages, UIConstants
+from uwp_utils import (
+    WindowInfo,
+    clean_window_title,
+    convert_hex_to_rgb,
+    get_version,
+    invert_hex_color,
+    restart_as_admin,
+    to_bool,
+    validate_int_pair,
+)
+from uwp_window import (
+    WindowManager,
+    bring_to_front,
+    capture_window,
+    collect_window_settings,
+    find_matching_windows,
+    get_all_window_titles,
+    get_window_metrics,
+    get_windows_for_layout,
+)
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from configparser import ConfigParser
 
 def compare_window_data(settings: dict, metrics:dict)->bool:
     """Check if the metrics for a window match the config settings."""
@@ -74,20 +106,17 @@ def compare_window_data(settings: dict, metrics:dict)->bool:
     return bool(not differences)
 
 def get_matching_and_missing_windows(config: ConfigParser)->tuple[list,list]:
+    """Get the windows that match the config and the ones that are missing."""
     return find_matching_windows(config.sections(), get_ignore_list(config))
 
 def _verify_window_data(config: ConfigParser, matching_windows:list)->bool:
     compare_results = []
     for match in matching_windows:
-        hwnd = match["hwnd"]
-        section = match["config_name"]
-
-        settings = get_window_settings_from_config(config, section)
-        metrics = get_window_metrics(hwnd)
-
+        metrics = get_window_metrics(match["hwnd"])
         if not metrics:
             continue
 
+        settings = get_window_settings_from_config(config, match["config_name"])
         compare_results.append(compare_window_data(settings, metrics))
 
     return all(compare_results)
@@ -121,7 +150,6 @@ class PysideGuiManager(QMainWindow):
         self.apply_thread_running = False
 
         self.config = None
-        self.config_names = None
         self.config_files = None
         self.config_active = False
         self.applied_config = None
@@ -223,21 +251,15 @@ class PysideGuiManager(QMainWindow):
             combo = self.combo_box
             delta = event.angleDelta().y()
             current = combo.currentIndex()
-
-            if delta > 0:  # scroll up
-                new_index = max(0, current - 1)
-            else:  # scroll down
-                new_index = min(combo.count() - 1, current + 1)
-
+            new_index = max(0, current - 1) if delta > 0 else min(combo.count() - 1, current + 1)
             combo.setCurrentIndex(new_index)
 
             return True
         return super().eventFilter(source, event)
 
-
     def get_geometry_and_minsize(self) -> tuple[int, int, int, int]:
         """Get the sizes needed to set geometry and minsize."""
-        compact_height_factor = 0.8
+        compact_height_factor = 1
         if self.compact_mode:
             width = UIConstants.COMPACT_WIDTH
             height = UIConstants.COMPACT_HEIGHT
@@ -257,23 +279,41 @@ class PysideGuiManager(QMainWindow):
             self.layout_frame,
             self.admin_button,
             self.theme_switch,
+            self.filter_switch,
             self.edit_config_button,
             self.image_folder_button,
             self.screenshot_button,
             self.details_switch,
             self.toggle_images_switch,
             self.aot_label,
+            self.spacer_1,
+            self.spacer_2,
             self.left_radio,
             self.center_radio,
             self.right_radio,
             self.snap_label,
         ]
 
+        resized_buttons = [
+            self.apply_config_button,
+            self.create_config_button,
+            self.delete_config_button,
+            self.detect_config_button,
+            self.toggle_compact_button,
+            self.edit_config_button,
+            self.image_folder_button,
+            self.screenshot_button,
+        ]
+
         self.managed_widget.setVisible(compact)
 
         if compact:
+            for button in resized_buttons:
+                button.setFixedHeight(30)
             self.combo_box.setFixedWidth(min_width - 20)
         else:
+            for button in resized_buttons:
+                button.setFixedHeight(50)
             self.combo_box.setFixedWidth(int(min_width / 2))
 
         for widget in hidden_elements:
@@ -288,7 +328,6 @@ class PysideGuiManager(QMainWindow):
         else:
             self.b1.setDirection(QBoxLayout.Direction.LeftToRight)  # horizontal
             self.b2.setDirection(QBoxLayout.Direction.LeftToRight)  # horizontal
-
 
     def update_managed_text(self, lines: list, aot_flags: list, missing: list) -> None:
         """Update the text for the managed windows view (for compact mode)."""
@@ -352,7 +391,10 @@ class PysideGuiManager(QMainWindow):
         self.combo_box = QComboBox(self)
         self.combo_box.setFixedWidth(width)
 
+        self.filter_switch = QCheckBox("Filter configs", self)
+
         combo_layout.addWidget(self.combo_box, alignment=Qt.AlignmentFlag.AlignLeft)
+        combo_layout.addWidget(self.filter_switch, alignment=Qt.AlignmentFlag.AlignLeft)
 
         self.admin_button = QPushButton("Restart as Admin" if not self.is_admin else "Admin mode", self)
         self.theme_switch = QCheckBox("light / dark", self)
@@ -420,32 +462,33 @@ class PysideGuiManager(QMainWindow):
         # Row 1: config buttons
         self.b1 = QHBoxLayout()
 
-        self.apply_config_button = QPushButton("Apply selected config", self)
-        self.reset_config_button = QPushButton("Reset applied config", self)
-        self.create_config_button = QPushButton("Create new config", self)
-        self.edit_config_button = QPushButton("Edit selected config", self)
+        self.apply_config_button = QPushButton("Apply config", self)
+        self.create_config_button = QPushButton("Create config", self)
+        self.edit_config_button = QPushButton("Edit config", self)
+        self.delete_config_button = QPushButton("Delete config", self)
 
         self.b1.addWidget(self.apply_config_button)
-        self.b1.addWidget(self.reset_config_button)
         self.b1.addWidget(self.create_config_button)
         self.b1.addWidget(self.edit_config_button)
+        self.b1.addWidget(self.delete_config_button)
 
         btn_layout.addLayout(self.b1)
 
         # Row 2: folder / screenshot / images
         self.b2 = QHBoxLayout()
 
-        self.screenshot_button = QPushButton("Take screenshots for config", self)
+        self.screenshot_button = QPushButton("Take config screenshots", self)
         self.image_folder_button = QPushButton("Open image folder", self)
-        self.delete_config_button = QPushButton("Delete selected config", self)
+        self.detect_config_button = QPushButton("Detect config", self)
+        self.toggle_compact_button = QPushButton("Toggle compact", self)
 
         self.screenshot_button.setEnabled(True)
         self.image_folder_button.setEnabled(True)
-        self.delete_config_button.setEnabled(True)
 
         self.b2.addWidget(self.screenshot_button)
         self.b2.addWidget(self.image_folder_button)
-        self.b2.addWidget(self.delete_config_button)
+        self.b2.addWidget(self.detect_config_button)
+        self.b2.addWidget(self.toggle_compact_button)
 
         btn_layout.addLayout(self.b2)
 
@@ -453,25 +496,50 @@ class PysideGuiManager(QMainWindow):
         aot_l = QHBoxLayout()
         self.aot_button = QPushButton("Toggle AOT", self)
         self.aot_label = QLabel(Messages.ALWAYS_ON_TOP_DISABLED, self)
-        self.detect_config_button = QPushButton("Detect config", self)
-        self.toggle_compact_button = QPushButton("Toggle compact", self)
 
         self.aot_button.setEnabled(False)
+        self.aot_button.setFixedHeight(30)
         self.aot_label.setContentsMargins(10, 0, 10, 0)
 
-        aot_l.addWidget(self.aot_label)
+        self.spacer_1 = QPushButton("")
+        self.spacer_1.setFixedHeight(30)
+
+        self.spacer_2 = QPushButton("")
+        self.spacer_2.setFixedHeight(30)
+
         aot_l.addWidget(self.aot_button)
-        aot_l.addWidget(self.detect_config_button)
-        aot_l.addWidget(self.toggle_compact_button)
+        aot_l.addWidget(self.aot_label)
+        aot_l.addWidget(self.spacer_1)
+        aot_l.addWidget(self.spacer_2)
 
         btn_layout.addLayout(aot_l)
         self.main_layout.addLayout(btn_layout)
 
         aot_bottom = QHBoxLayout()
-        self.aot_hotkey_label = QLabel(f"AOT hotkey: {self.hotkey}", self)
-        self.aot_hotkey_label.setContentsMargins(20, 0, 10, 0)
-        aot_bottom.addWidget(self.aot_hotkey_label, alignment=Qt.AlignmentFlag.AlignLeft)
+
+        self.reapply_pause_label = QLabel("", self)
+        self.reapply_pause_label.setContentsMargins(10, 0, 10, 0)
+        aot_bottom.addWidget(self.reapply_pause_label, alignment=Qt.AlignmentFlag.AlignLeft)
+
+        self.snap_label = QLabel("Application open position:", self)
+        self.snap_label.setContentsMargins(10, 0, 50, 0)
+        aot_bottom.addWidget(self.snap_label, alignment=Qt.AlignmentFlag.AlignRight)
+
         self.main_layout.addLayout(aot_bottom)
+
+    def update_reapply_label(self) -> None:
+        """Update the text and color of the reapply status label."""
+        reapply_txt = "Reapply "
+        if self.reapply_paused:
+            reapply_txt += "PAUSED"
+            self.reapply_pause_label.setStyleSheet(f"color: {self.colors.TEXT_NOTICE}")
+        elif self.reapply and self.config_active:
+            reapply_txt += "ACTIVE"
+            self.reapply_pause_label.setStyleSheet(f"color: {self.colors.TEXT_ALWAYS_ON_TOP}")
+        else:
+            reapply_txt += "INACTIVE"
+            self.reapply_pause_label.setStyleSheet(f"color: {self.colors.TEXT_NORMAL}")
+        self.reapply_pause_label.setText(reapply_txt)
 
     def _build_images_and_snap_row(self) -> None:
         """Create checkboxes for auto re-apply, details, images, and snap selection."""
@@ -494,10 +562,8 @@ class PysideGuiManager(QMainWindow):
         # Snap selection
         snap_l = QHBoxLayout()
         snap_l.setSpacing(10)
-        self.snap_label = QLabel("Application open position:", self)
-        snap_l.addWidget(self.snap_label)
 
-        radio_width = 60
+        radio_width = 65
         self.left_radio = QRadioButton("Left", self)
         self.center_radio = QRadioButton("Center", self)
         self.right_radio = QRadioButton("Right", self)
@@ -523,7 +589,6 @@ class PysideGuiManager(QMainWindow):
         self.aot_button.clicked.connect(self.toggle_always_on_top)
         self.admin_button.clicked.connect(restart_as_admin)
         self.apply_config_button.clicked.connect(self.apply_settings)
-        self.reset_config_button.clicked.connect(self.apply_settings)
         self.screenshot_button.clicked.connect(self.take_screenshot)
         self.image_folder_button.clicked.connect(self.open_image_folder)
         self.toggle_compact_button.clicked.connect(self.toggle_compact)
@@ -534,6 +599,7 @@ class PysideGuiManager(QMainWindow):
         self.details_switch.stateChanged.connect(self._on_details_toggle)
         self.toggle_images_switch.stateChanged.connect(self._on_images_toggle)
         self.theme_switch.stateChanged.connect(self._on_theme_toggle)
+        self.filter_switch.stateChanged.connect(self.update_config_list)
 
         # Radio buttons
         self.snap_group.buttonToggled.connect(self._on_snap_toggle)
@@ -561,7 +627,7 @@ class PysideGuiManager(QMainWindow):
                 border-radius: 10px;
                 border: 2px solid {self.colors.BORDER_COLOR};
                 padding: 5px;
-                height: 40px;
+                height: 54px;
             }}
             QPushButton:hover {{
                 background: {self.colors.BUTTON_HOVER};
@@ -607,49 +673,29 @@ class PysideGuiManager(QMainWindow):
                 height: 18px;
             }}
         """)
-        self.reset_config_button.setStyleSheet(f"""
-            QPushButton {{
-                background: {self.colors.BUTTON_ACTIVE};
-                border: 1px solid {self.colors.BORDER_COLOR};
-                padding: 5px;
-            }}
-            QPushButton:hover {{
-                background: {self.colors.BUTTON_ACTIVE_HOVER};
-            }}
-            QPushButton:disabled {{
-                background: {self.colors.BUTTON_DISABLED};
-                color: #888;
-            }}
-        """)
-        self.aot_button.setStyleSheet("""
-            QPushButton {
-                height: 20px;
-            }
-            """)
-        self.detect_config_button.setStyleSheet("""
-            QPushButton {
-                height: 20px;
-            }
-            """)
-        self.toggle_compact_button.setStyleSheet("""
-            QPushButton {
-                height: 20px;
-            }
-            """)
+        self.spacer_1.setStyleSheet(f"background:{self.colors.BACKGROUND}; border: none")
+        self.spacer_2.setStyleSheet(f"background:{self.colors.BACKGROUND}; border: none")
         # Re-apply dynamic states after theme reset
-        self.format_apply_reset_button(selected_config_shortname=None)
+        self.format_apply_button(selected_config_shortname=None)
         self.format_admin_button(admin_enabled=self.is_admin)
 
-    def format_apply_reset_button(self, selected_config_shortname: str | None, disable: int = 0) -> None:
+    def format_apply_button(self, selected_config_shortname: str | None) -> None:
         """Set the state and color for apply and reset buttons."""
-        if disable:
-            self.apply_config_button.setDisabled(True)
-            self.reset_config_button.setDisabled(True)
-            return
-
         if self.config_active:
-            self.apply_config_button.setDisabled(True)
-            self.reset_config_button.setEnabled(True)
+            self.apply_config_button.setStyleSheet(f"""
+                QPushButton {{
+                    background: {self.colors.BUTTON_ACTIVE};
+                    border-radius: 10px;
+                    border: 2px solid {self.colors.BORDER_COLOR};
+                    padding: 5px;
+                    height: 54px;
+                }}
+                QPushButton:hover {{
+                    background: {self.colors.BUTTON_ACTIVE_HOVER};
+                }}
+                """)
+            self.apply_config_button.setText("Reset active config")
+
             self.info_label.setText(
                 f"Active: {
                 selected_config_shortname
@@ -657,12 +703,23 @@ class PysideGuiManager(QMainWindow):
                 else self.applied_config_name
                 }",
             )
-            self.aot_button.setEnabled(True)
+            self.aot_button.setEnabled(bool(self.win_man.topmost_windows))
         else:
-            self.reset_config_button.setDisabled(True)
-            self.apply_config_button.setEnabled(True)
+            self.apply_config_button.setStyleSheet(f"""
+                QPushButton {{
+                    background: {self.colors.BUTTON_NORMAL};
+                    border-radius: 10px;
+                    border: 2px solid {self.colors.BORDER_COLOR};
+                    padding: 5px;
+                    height: 54px;
+                }}
+                QPushButton:hover {{
+                    background: {self.colors.BUTTON_HOVER};
+                }}
+                """)
+            self.apply_config_button.setText("Apply config")
             self.info_label.setText("")
-            self.aot_button.setEnabled(False)
+            self.aot_button.setEnabled(bool(self.win_man.topmost_windows))
 
     def format_admin_button(self, *, admin_enabled: bool | int) -> None:
         """Set the state and color of the admin button based on app permission state."""
@@ -738,11 +795,15 @@ class PysideGuiManager(QMainWindow):
         self.layout_frame.windows = windows
         self.layout_frame.update()
 
-    def update_config_list(self, config: str = None) -> None:
+    def update_config_list(self, config: str | None = None) -> None:
         """Get new config list from disk."""
-        self.config_files, self.config_names = self.cfg_man.list_config_files()
-        if self.config_files and self.config_names:
-            self.set_combo_values(self.config_names, config or self.config_names[0])
+        files = self.cfg_man.list_config_files()
+        self.config_files = self._filter_combo(files)
+
+        if self.config_files:
+            names = list(self.config_files.keys())
+            cfg = config if isinstance(config, str) else names[0]
+            self.set_combo_values(names, cfg)
             self.on_config_select()
         else:
             self.set_combo_values(["No configs found"], "No configs found")
@@ -892,8 +953,7 @@ class PysideGuiManager(QMainWindow):
     # Toggle always-on-top status for windows in the applied config
     def toggle_always_on_top(self)->None:
         """Toggle always-on-top status for windows in the applied config."""
-        for hwnd in self.win_man.topmost_windows:
-            self.win_man.toggle_always_on_top(hwnd)
+        self.win_man.toggle_always_on_top()
         self.update_always_on_top_status()
         self.reapply_paused = not self.reapply_paused
 
@@ -908,12 +968,9 @@ class PysideGuiManager(QMainWindow):
         """Take a screenshot of the windows in the currently selected config."""
         if self.reapply:
             self.reapply_paused = True
-
         worker = threading.Thread(target=self._take_screenshot_worker, daemon=True)
         worker.start()
-
         self.reapply_paused = False
-
 
     # Opening the folder containing the image files
     def open_image_folder(self)->None:
@@ -925,19 +982,26 @@ class PysideGuiManager(QMainWindow):
         """Toggle between compact and full mode."""
         if not startup:
             self.compact_mode = not self.compact_mode
+            self._save_settings()
 
         if self.compact_mode:
-            self.toggle_compact_button.setText("Go full")
+            self.toggle_compact_button.setText("Go to full mode")
             self.aot_button.setText("AOT")
             self.detect_config_button.setText("Detect")
         else:
-            self.toggle_compact_button.setText("Go compact")
-            self.aot_button.setText("Toggle AOT")
+            self.toggle_compact_button.setText("Go to compact mode")
+            self.aot_button.setText(f"Toggle AOT ({self.hotkey})")
             self.detect_config_button.setText("Detect config")
 
         width, height, min_width, min_height = self.get_geometry_and_minsize()
         self.toggle_elements(compact=self.compact_mode, min_width=min_width)
+        self.setMinimumSize(min_width, min_height)
+        self._position_app_window()
+        self.on_config_select()
 
+
+    def _position_app_window(self):
+        width, height, _, _ = self.get_geometry_and_minsize()
         snap_left = 1
         snap_right = 2
         if self.snap == 0:
@@ -950,10 +1014,8 @@ class PysideGuiManager(QMainWindow):
             pos_x = 100
         pos_y = (self.res_y // 2) - (height // 2)
 
-        self.setMinimumSize(min_width, min_height)
         self.setGeometry(pos_x, pos_y, width, height)
 
-        self.on_config_select()
 
     def detect_config(self)->None:
         """Detect the best matching config based on available windows."""
@@ -963,6 +1025,22 @@ class PysideGuiManager(QMainWindow):
             self.update_config_list(default_config)
 
     # Switch actions
+
+    def _filter_combo(self, files: dict) -> dict:
+        if self.filter_switch.isChecked():
+            filtered_files = {}
+            for name, file in files.items():
+                config = self.cfg_man.load_config(file)
+                if not config:
+                    continue
+
+                existing, _ = get_matching_and_missing_windows(config)
+                if existing:
+                    filtered_files[name] = file
+
+            return filtered_files
+
+        return files
 
     def _on_theme_toggle(self, state: int) -> None:
         # True -> light; False -> dark
@@ -998,21 +1076,21 @@ class PysideGuiManager(QMainWindow):
         elif button == self.right_radio:
             self.snap = 2
 
+        self._position_app_window()
         self._save_settings()
 
     # Drop-down menu action
 
     def on_config_select(self) -> None:
         """Load new config when selecting an item from the dropdown."""
-        matching = []
-        missing = []
-        selected_value = self.combo_box.currentText()
-        if not selected_value:
+        combo_value = self.combo_box.currentText()
+        if not combo_value:
             return
 
-        if selected_value in self.config_names:
-            idx = self.config_names.index(selected_value)
-            self.config = self.cfg_man.load_config(self.config_files[idx])
+        matching, missing = [], []
+        if combo_value in self.config_files:
+            cfg = self.config_files[combo_value]
+            self.config = self.cfg_man.load_config(cfg)
             matching, missing = get_matching_and_missing_windows(self.config)
 
         screenshot_button_enabled = (not self.applied_config or self.config == self.applied_config) and bool(matching)
@@ -1023,36 +1101,44 @@ class PysideGuiManager(QMainWindow):
         else:
             self.update_managed_windows_list(self.config, missing)
 
-    def update_always_on_top_status(self)->None:
+    def update_always_on_top_status(self)->int | None:
         """Change the status label text to reflect current number of AOT windows."""
-        status = self.win_man.get_always_on_top_status()
-        self.aot_label.setText(status)
+        count = self.win_man.get_always_on_top_number()
+        if count is None:
+            self.aot_label.setText("AOT: None")
+        else:
+            if count == 0:
+                self.aot_button.setStyleSheet(f"background-color: {self.colors.BUTTON_NOTICE}; height: 20px")
+            else:
+                self.aot_button.setStyleSheet(f"background-color: {self.colors.BUTTON_NORMAL}; height: 20px")
+
+            self.aot_label.setText(f"AOT: {count} window{'s' if count > 1 else ''}")
+        return count
 
     # Applying configuration settings
     def _apply_settings_worker(self, *, reapply:bool=False) -> None:
         self.apply_thread_running = True
         sleep(0.5)
-
         self.win_man.remove_invalid_windows()
 
         logger.info("Managed windows before applying config: %s", self.win_man.managed_windows)
 
-        selected_config_shortname = None
+        shortname = None
 
         if not reapply:
-            index = self.combo_box.currentIndex()
-            selected_config_shortname = self.toggle_active_config(index)
-            self.applied_config_name = selected_config_shortname
+            cfg = self.combo_box.currentText()
+            shortname = self.toggle_active_config(cfg)
+            self.applied_config_name = shortname
 
         if not self.applied_config:
-            selected_config_shortname = None
+            shortname = None
         else:
             matching_windows, _ = get_matching_and_missing_windows(self.applied_config)
 
             # Apply configuration
-            for match in matching_windows:
-                hwnd = match["hwnd"]
-                section = match["config_name"]
+            for window in matching_windows:
+                hwnd = window["hwnd"]
+                section = window["config_name"]
                 settings = {
                     "position":self.applied_config.get(section, "position", fallback=None),
                     "size": self.applied_config.get(section, "size", fallback=None),
@@ -1064,14 +1150,13 @@ class PysideGuiManager(QMainWindow):
                 self.win_man.apply_window_config(settings, hwnd)
 
         self.update_always_on_top_status()
-        self.format_apply_reset_button(selected_config_shortname=selected_config_shortname)
+        self.format_apply_button(selected_config_shortname=shortname)
 
         self.apply_thread_running = False
 
-
     def auto_reapply(self)->None:
         """Update the window list and reapplies settings."""
-        #print("Auto-reapply check running...", datetime.now().strftime("%H:%M:%S"))  # noqa: DTZ005, E501
+        self.update_reapply_label()
         if not self._check_reapply_conditions():
             return
 
@@ -1081,15 +1166,10 @@ class PysideGuiManager(QMainWindow):
         if not matching_windows:
             return
 
-        print(f"Matching windows found: {[w['config_name'] for w in matching_windows]} at {datetime.now().strftime('%H:%M:%S')}")  # noqa: DTZ005, E501
+        win_match_config = _verify_window_data(self.applied_config, matching_windows)
 
-        verify_results = _verify_window_data(self.applied_config, matching_windows)
-
-        if not verify_results:
-            print("Auto-reapply triggered", datetime.now().strftime("%H:%M:%S"))  # noqa: DTZ005, E501
+        if not win_match_config:
             logger.info("Changes detected, reapplying settings...\n")
-            # Sleep 500 ms before reapplying to avoid potential issues with windows
-            # that are in the process of opening or closing
             self.apply_settings(reapply=True)
 
     # Toggles window details text overlay
@@ -1097,20 +1177,17 @@ class PysideGuiManager(QMainWindow):
         self._save_settings()
         self.on_config_select()
 
-    def toggle_active_config(self, index:int)->str | None:
+    def toggle_active_config(self, cfg_name:str)->str | None:
         """Toggle the active config."""
         self.config_active = not self.config_active
         if self.config_active:
-            selected_config = self.config_files[index]
-            selected_config_shortname = self.config_names[index]
+            file = self.config_files[cfg_name]
+            self.applied_config = self.cfg_man.load_config(file)
 
-            config = self.cfg_man.load_config(selected_config)
-            self.applied_config = config
-
-            logger.info("Applied config: %s", selected_config_shortname)
+            logger.info("Applied config: %s", cfg_name)
             logger.info("Managed windows: %s\n", self.win_man.managed_windows)
 
-            return selected_config_shortname
+            return cfg_name
 
         self.applied_config = None
         self.win_man.reset_all_windows()
@@ -1144,6 +1221,8 @@ class ConfigDialog(QDialog):
     ) -> None:
         """Initialize the dialog with window selection and settings callbacks."""
         super().__init__(parent)
+        self.save_area = QWidget()
+        self.settings_area = QWidget()
         self.preset_label_text = None
         self.config_name_edit = None
         self.layout_container_layout = None
@@ -1158,7 +1237,7 @@ class ConfigDialog(QDialog):
         self.resize(800, 600)
 
         self.colors = parent.colors
-        self.use_images = parent.use_images
+        self.use_images = True
         self.cfg_man = parent.cfg_man
         self.win_man = parent.win_man
         self.config_name = config_name
@@ -1179,41 +1258,16 @@ class ConfigDialog(QDialog):
         self.auto_align_layouts = def_layouts
         self.auto_align_offsets = def_offsets
 
-        main_layout = QVBoxLayout(self)
+        self.main_layout = QVBoxLayout(self)
 
-        self.apply_order = []
         self.edit_mode = edit_mode
+        self.apply_order = self._get_apply_order() if edit_mode else None
         if self.edit_mode:
-            self.apply_order = self._get_apply_order()
             self.show_config_settings(self.window_titles)
             return
 
-        # --- Selection stage (Stage 1) ---
-        self.selection_area = QWidget()
-        sel_layout = QVBoxLayout(self.selection_area)
-        sel_layout.addWidget(QLabel(f"Select windows ({self.max_windows}):"))
+        self._open_selection_menu()
 
-        self.switches = {}
-        for raw_title in self.window_titles:
-            title = clean_window_title(raw_title, sanitize=True)
-            cb = QCheckBox(title)
-            self.switches[raw_title] = cb
-            sel_layout.addWidget(cb)
-
-        confirm_btn = QPushButton("Confirm Selection")
-        confirm_btn.clicked.connect(self.confirm_selection)
-        sel_layout.addWidget(confirm_btn)
-
-        self.selection_area.adjustSize()
-        main_layout.addWidget(self.selection_area)
-
-        self.setLayout(main_layout)
-        self.adjustSize()
-        self.setSizeGripEnabled(True)
-
-        # Stage 2 and 3 containers
-        self.settings_area = None
-        self.save_area = None
 
     def _get_apply_order(self) -> list:
         """Retrieve and validate the current apply order from config."""
@@ -1318,10 +1372,33 @@ class ConfigDialog(QDialog):
 
         return container
 
+    def _open_selection_menu(self) -> None:
+        # --- Selection stage (Stage 1) ---
+        self.selection_area = QWidget()
+        sel_layout = QVBoxLayout(self.selection_area)
+        sel_layout.addWidget(QLabel(f"Select windows ({self.max_windows}):"))
+
+        self.switches = {}
+        for raw_title in self.window_titles:
+            title = clean_window_title(raw_title, sanitize=True)
+            cb = QCheckBox(title)
+            self.switches[raw_title] = cb
+            sel_layout.addWidget(cb)
+
+        confirm_btn = QPushButton("Confirm Selection")
+        confirm_btn.clicked.connect(self.confirm_selection)
+        sel_layout.addWidget(confirm_btn)
+
+        self.selection_area.adjustSize()
+        self.main_layout.addWidget(self.selection_area)
+
+        self.setLayout(self.main_layout)
+        self.adjustSize()
+        self.setSizeGripEnabled(True)
+
     def show_config_settings(self, sorted_window: list) -> None:  # noqa: PLR0915
         """Display settings rows, controls, and layout preview for selected windows."""
         self.sorted_window = sorted_window
-        self.settings_area = QWidget()
         settings_layout = QVBoxLayout(self.settings_area)
 
         apply_order = self._create_apply_order_list(self.apply_order)
@@ -1346,9 +1423,7 @@ class ConfigDialog(QDialog):
 
         settings_layout.addWidget(rows_container, stretch=0)
 
-        ignore_list = ""
-        if self.edit_mode:
-            ignore_list = self.settings_callback("DEFAULT").get("ignore_list", "")
+        ignore_list = self.settings_callback("DEFAULT").get("ignore_list", "") if self.edit_mode else ""
         ignore_label = QLabel("List of titles to not match (comma separated):")
         self.ignore_edit = QLineEdit(ignore_list)
         settings_layout.addWidget(ignore_label)
@@ -1380,7 +1455,6 @@ class ConfigDialog(QDialog):
         settings_layout.addWidget(self.layout_container, stretch=1)
 
         # Save area
-        self.save_area = QWidget()
         save_layout = QHBoxLayout(self.save_area)
         save_layout.addWidget(QLabel("Config Name:"))
         self.config_name_edit = QLineEdit(self.config_name)
@@ -1440,7 +1514,7 @@ class ConfigDialog(QDialog):
             windows.append(WindowInfo(
                 vals["name"], pos_x, pos_y, size_w, size_h,
                 always_on_top=vals["always_on_top"], exists=True,
-                search_title="", source_url="", source="",
+                search_title="",
             ))
         return windows
 
@@ -1459,6 +1533,7 @@ class ConfigDialog(QDialog):
                    title: str,
                    pos: str | None = None,
                    size: str | None = None,
+                   *,
                    aot: bool | None = None,
                    titlebar: bool | None = None,
                    ) -> None:
@@ -1828,8 +1903,8 @@ class WindowSettingsRow(QWidget):
 
         pos = values.get("position", "0,0")
         size = values.get("size", "100,100")
-        aot = to_bool(values.get("always_on_top", False))
-        titlebar = to_bool(values.get("titlebar", True))
+        aot = to_bool(val=values.get("always_on_top", False))
+        titlebar = to_bool(val=values.get("titlebar", True))
         name = values.get("name", title)
 
         # Larger name input
@@ -1873,6 +1948,7 @@ class WindowSettingsRow(QWidget):
                    name: str,
                    pos: str,
                    size: str,
+                   *,
                    aot: bool,
                    titlebar: bool,
                    process_priority: bool = False,
@@ -1924,16 +2000,12 @@ class ScreenLayoutWidget(QWidget):
 
     def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
         """Override for wheelEvent."""
-        combo = self.parent.combo_box
-        delta = event.angleDelta().y()
-        current = combo.currentIndex()
-
-        if delta > 0:  # scroll up
-            new_index = max(0, current - 1)
-        else:  # scroll down
-            new_index = min(combo.count() - 1, current + 1)
-
-        combo.setCurrentIndex(new_index)
+        if hasattr(self.parent, "combo_box"):
+            combo = self.parent.combo_box
+            delta = event.angleDelta().y()
+            current = combo.currentIndex()
+            new_index = max(0, current - 1) if delta > 0 else min(combo.count() - 1, current + 1)
+            combo.setCurrentIndex(new_index)
 
     def draw_layout(self, painter: object, width: int, height: int) -> None:
         """Draw the layout preview."""

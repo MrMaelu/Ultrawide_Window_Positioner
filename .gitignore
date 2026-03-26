@@ -38,7 +38,7 @@ tmp_*
 
 # Application specific
 config_*.ini
-test.py
+test*
 configs
 settings
 assets
@@ -46,3 +46,4 @@ _assets
 *client_secrets.py
 layout_config.ini
 buglist.txt
+logs

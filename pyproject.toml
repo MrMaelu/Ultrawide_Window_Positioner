@@ -1,19 +1,27 @@
 [project]
 name = "ultrawide-window-positioner"
-version = "1.0.4.0"
+version = "1.2.2.0"
 description = "Application to manage window position, size and always-on-top status."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "customtkinter>=5.2.2",
     "global-hotkeys>=0.1.7",
-    "mss>=10.0.0",
-    "pillow>=11.3.0",
-    "psutil>=7.0.0",
-    "pygetwindow>=0.0.9",
-    "pyinstaller>=6.15.0",
-    "pyside6>=6.9.1",
+    "hdrcapture",
+    "psutil>=7.2.2",
+    "pyside6-essentials>=6.10.2",
     "pywin32>=311",
-    "requests>=2.32.4",
     "roman>=5.2",
 ]
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.19.0",
+    "pytest>=8.0.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["src/tests"]
+
+[tool.uv.sources]
+hdrcapture = { path = "hdrcapture-0.3.0-cp312-cp312-win_amd64.whl" }

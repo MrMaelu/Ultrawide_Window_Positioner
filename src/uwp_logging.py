@@ -8,6 +8,9 @@ log_path = Path(log_folder / "uwp_debug.log")
 log_path_old = Path(log_folder / "uwp_debug_old.log")
 log_path_old_old = Path(log_folder / "uwp_debug_old_old.log")
 
+if not log_folder.exists():
+    log_folder.mkdir()
+
 try:
     if log_path.exists():
         if log_path_old.exists():
@@ -22,7 +25,6 @@ def setup_logging()->None:
     """Set up logging."""
     logging.basicConfig(
         level=logging.INFO,
-        filename="uwp_debug.log",
+        filename=log_path,
         format="%(asctime)s - %(levelname)s - %(message)s",
         )
-

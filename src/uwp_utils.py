@@ -1,14 +1,36 @@
 """Collection of utilities."""
-import os
+import logging
 import re
+import subprocess
 import sys
-from ctypes import windll
+from configparser import ConfigParser
+from dataclasses import dataclass
+from pathlib import Path
 
+import psutil
 import roman
 import win32api
+import win32con
+import win32gui
+import win32process
 
-from pathlib import Path
-from dataclasses import dataclass
+logger = logging.getLogger(__name__)
+
+# noinspection SpellCheckingInspection
+base_path = getattr(sys, "_MEIPASS", Path(Path(__file__).absolute().parent.parent))
+
+@dataclass
+class WindowMetrics:
+    """Hold metrics data for a window or config."""
+
+    x: int
+    y: int
+    w: int
+    h: int
+    aot: bool
+    border: bool
+    apply_order: str
+
 
 @dataclass
 class WindowInfo:
@@ -22,30 +44,133 @@ class WindowInfo:
     always_on_top: bool
     exists: bool
     search_title: str
-    source_url: str
-    source: str
 
-def clean_window_title(title:str, *, sanitize:bool=False, titlecase:bool=True)->str:
+
+@dataclass
+class WindowsWindow:
+    """Hold information about application windows."""
+
+    hwnd: int
+    pid: int
+    title: str
+    app_name: str
+    app_path: str
+    width: int
+    height: int
+    x: float
+    y: float
+    titlebar: bool
+    aot: bool
+
+
+def metrics_to_window_info(name: str, metrics: WindowMetrics, *, exists: bool)->WindowInfo:
+    """Convert WindowMetrics to WindowInfo."""
+    return WindowInfo(
+        name,
+        metrics.x,
+        metrics.y,
+        metrics.w,
+        metrics.h,
+        metrics.aot,
+        exists,
+        name,
+    )
+
+
+
+def window_to_metrics(window: WindowsWindow)->WindowMetrics | None:
+    """Convert a WindowsWindow to WindowMetrics."""
+    if not window:
+        return None
+
+    return WindowMetrics(
+        int(float(window.x)),
+        int(float(window.y)),
+        int(float(window.width)),
+        int(float(window.height)),
+        window.aot,
+        window.titlebar,
+        "",
+    )
+
+def get_window_info(hwnd: int) -> WindowsWindow | None:
+    """Get information about a window."""
+    title = win32gui.GetWindowText(hwnd)
+    if not title.strip():
+        return None
+
+    _, pid = win32process.GetWindowThreadProcessId(hwnd)
+    rect = win32gui.GetWindowRect(hwnd)
+    style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
+    # noinspection SpellCheckingInspection
+    exstyle = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
+
+    width = rect[2] - rect[0]
+    height = rect[3] - rect[1]
+    x = rect[0]
+    y = rect[1]
+    aot = exstyle & win32con.WS_EX_TOPMOST != 0
+    titlebar = style & win32con.WS_CAPTION != 0
+
+    try:
+        proc = psutil.Process(pid)
+        app_name = proc.name()
+        app_path = proc.exe()
+
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        app_name = ""
+        app_path = ""
+
+    return WindowsWindow(
+        hwnd,
+        pid,
+        title[:60],
+        app_name,
+        app_path,
+        width,
+        height,
+        x,
+        y,
+        titlebar,
+        aot,
+    )
+
+def get_data_path(relative_path: str)->str:
+    """Get the absolute path to a data file."""
+    absolute_path = Path(base_path) / "data" / relative_path
+    return absolute_path.as_posix()
+
+def clean_window_title(title:str, exe:str="", *, titlecase:bool=True)->list:
     """Remove special characters from title."""
     if not title:
-        return ""
+        return ["",""]
 
-    # Basic cleaning
-    title = re.sub(r"[^\x20-\x7E]", "", title)
-    title = re.sub(r"\s+", " ", title)
-    title = title.strip().lower()
+    parts = re.split(r" [-—–] ", title)  # noqa: RUF001
+    title = parts[-1].strip()
 
-    if sanitize:
-        # Additional cleaning for config files
-        parts = re.split(r" [-—–] ", title)  # noqa: RUF001
-        title = parts[-1].strip()
-        title = re.sub(r"\s+\d+%$", "", title)
-        title = re.sub(r'[<>:"/\\|?*\[\]]', "", title)
+    title = re.sub(r"\s+\d+%$", "", title)
+    title = re.sub(r'[<>:"/\\|?*\[\]]', "", title)
 
-    if titlecase:
-        return uppercase_roman_numerals(title.title())
+    title = uppercase_roman_numerals(title.title()) if titlecase else uppercase_roman_numerals(title)
+    if exe:
+        return [title, exe.split(".")[0]]
+    return  [title, title]
 
-    return uppercase_roman_numerals(title)
+
+def run_clean_subprocess(command: list[str], *,
+                         check_output: bool =False,
+                         **kwargs: dict,
+                         ) -> subprocess.CompletedProcess | bytes:
+    """Run a subprocess."""
+    if not check_output:
+        kwargs = {
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+        }
+
+    if check_output:
+        return subprocess.check_output(command, **kwargs)  # noqa: S603
+    return subprocess.run(command, check=False, **kwargs)  # noqa: S603
 
 
 def invert_hex_color(hex_color:str)->str:
@@ -86,34 +211,31 @@ def uppercase_roman_numerals(text:str)->str:
     return " ".join(sections)
 
 
-def match_titles(
-        sections: list, titles: list,
-        *, get_titles: bool = False,
-        ) -> bool | dict:
+def match_titles(sections: list, titles: list, *, get_titles: bool = False) -> bool | dict:
     """Compare two lists for matching titles.
 
     Return True when a window title match a section name.
     If the variable get_titles is True, return a dict of section: title match.
     """
     if not sections or not titles:
-        return False
+        return {} if get_titles else False
 
     title_matches = {}
     for title in titles:
-        for section in sections:
-            sc = clean_window_title(section, sanitize=True)
-            tc = clean_window_title(title, sanitize=True)
+        if not title.strip():
+            continue
 
+        for section in sections:
             # Exact match
-            if sc == tc:
+            if section == title:
                 if get_titles:
                     title_matches[section] = title
                 else:
                     return True
 
             # Prefix match that ensures a word boundary or the end follows the section
-            pattern = r"^" + re.escape(sc) + r"(\b|$)"
-            if bool(re.match(pattern, tc)):
+            pattern = r"^" + re.escape(section) + r"(\b|$)"
+            if bool(re.match(pattern, title)):
                 if get_titles:
                     title_matches[section] = title
                 else:
@@ -124,9 +246,55 @@ def match_titles(
 
     return False
 
+
+def to_bool(*, val: str | bool) -> bool:
+    """Convert a string value to bool."""
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        return val.lower() in ("1", "true", "yes", "on")
+    return bool(val)
+
+
+def validate_int_pair(value: str, default: tuple[int, int] = (0, 0)) -> tuple[int, int]:
+    """Check if int pair is valid."""
+    try:
+        x, y = map(int, value.split(","))
+    except ValueError:
+        return default
+    else:
+        return x, y
+
+
+def parse_coords(value: str, default: tuple[int, int] = (0, 0)) -> tuple[int, int]:
+    """Parse a string of the format 'x,y' into a tuple of integers."""
+    try:
+        parts = value.split(",")
+        return int(parts[0]), int(parts[1])
+    except (ValueError, IndexError):
+        return default
+
+
+def format_coords(x: int, y: int) -> str:
+    """Format coordinates as a string 'x,y'."""
+    return f"{int(x)},{int(y)}"
+
+
+def config_to_metrics(config: ConfigParser, section: str) -> WindowMetrics:
+    """Convert a config section to WindowMetrics."""
+    x, y = parse_coords(config.get(section, "position", fallback="0,0"))
+    w, h = parse_coords(config.get(section, "size", fallback="0,0"))
+    return WindowMetrics(x, y, w, h,
+                         config.getboolean(section, "always_on_top", fallback=False),
+                         config.getboolean(section, "titlebar", fallback=True),
+                         config.get(section, "apply_order", fallback=""),
+                         )
+
+
 def get_version() -> str | None:
     """Read the application version from version.txt file."""
     try:
+        # noinspection SpellCheckingInspection
         if hasattr(__import__("sys"), "_MEIPASS"):
             # Pyinstaller fix
             exe = Path(sys.executable)
@@ -149,29 +317,3 @@ def get_version() -> str | None:
 
     return None
 
-def to_bool(val: str | bool) -> bool:
-    """Convert a string value to bool."""
-    if isinstance(val, bool):
-        return val
-    if isinstance(val, str):
-        return val.lower() in ("1", "true", "yes", "on")
-    return bool(val)
-
-
-def validate_int_pair(value: str, default: tuple[int, int] = (0, 0)) -> tuple[int, int]:
-    """Check if int pair is valid."""
-    try:
-        x, y = map(int, value.split(","))
-    except ValueError:
-        return default
-    else:
-        return x, y
-
-def restart_as_admin()->None:
-    """Restart the application with admin privileges."""
-    rc_code = 32
-    if sys.platform == "win32":
-        params = " ".join([f'"{arg}"' for arg in sys.argv])
-        rc = windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
-        if rc > rc_code:
-            os._exit(0)

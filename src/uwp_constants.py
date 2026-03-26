@@ -1,6 +1,6 @@
 """Constant classes for Ultrawide Window Positioner."""
 
-AOT_HOTKEY = "alt + home"
+AOT_HOTKEY = "alt+home"
 
 class LayoutDefaults:
     """Default layouts."""
@@ -154,38 +154,17 @@ class UIConstants:
     """GUI constant values."""
 
     # Window dimensions
-    WINDOW_WIDTH = 750
-    WINDOW_HEIGHT = 540
-    WINDOW_MIN_WIDTH = 750
-    WINDOW_MIN_HEIGHT = 540
-
-    SETTINGS_WIDTH = 900
-    SETTINGS_HEIGHT = 500
+    WINDOW_WIDTH = 800
+    WINDOW_HEIGHT = 600
+    WINDOW_MIN_WIDTH = 800
+    WINDOW_MIN_HEIGHT = 600
 
     COMPACT_WIDTH = 200
-    COMPACT_HEIGHT = 530
+    COMPACT_HEIGHT = 470
 
-    BUTTON_WIDTH = 120
-    BUTTON_HEIGHT = 40
-    COMPACT_BUTTON_WIDTH = 80
-    CANVAS_HEIGHT = 240
     TASKBAR_HEIGHT = 46
     MAX_WINDOWS = 4
     WINDOW_TITLE_MAX_LENGTH = 24
-
-    # UI element sizes
-    MARGIN = (2,2,2,2)  # (top, right, bottom, left)
-    PADDING = 0
-    LINE_HEIGHT = 20
-    FONT_SIZE = 8
-    MANAGED_WINDOWS_WIDTH = 165
-    MANAGED_WINDOWS_HEIGHT = (FONT_SIZE + 12) * MAX_WINDOWS
-    CONFIG_DROPDOWN_WIDTH = 250
-    LABEL_WIDTH = 60
-
-    # Layout constants
-    DEFAULT_ALIGN = "center"  # Valid values: 'left', 'center', 'right'
-    DEFAULT_DIRECTION = "column"  # Valid values: 'row', 'column'
 
 class Colors:
     """GUI color values."""
@@ -199,56 +178,31 @@ class Colors:
     WINDOW_ALWAYS_ON_TOP = "#306030"
     WINDOW_BORDER = "#050505"
     WINDOW_FRAME = "#101010"
-    DIM_BORDER = "#555555"
 
-    # Window styles
-    TITLE_BAR_COLOR = "#000000"
-    TITLE_TEXT_COLOR = "#FFFFFF"
-    BORDER_COLOR = "#101010"
+    BORDER_COLOR = WINDOW_FRAME
 
     # Text colors
     TEXT_NORMAL = "#FFFFFF"
-    TEXT_ERROR = "#FFFF00"
+    TEXT_ERROR = "#FF6B6B"
     TEXT_ALWAYS_ON_TOP = "#50A050"
-    TEXT_DIM = "#555555"
-
-    # Use these for darker backgrounds
-    WINDOW_NORMAL_DARK = "#2A2A2A"
-    WINDOW_ALWAYS_ON_TOP_DARK = "#104010"
-    WINDOW_MISSING_DARK = "#3F1F1F"
+    TEXT_NOTICE = "#907000"
 
     # Buttons
     BUTTON_NORMAL = "#303030"
     BUTTON_HOVER = "#505050"
     BUTTON_ACTIVE = "#206020"
     BUTTON_ACTIVE_HOVER = "#408040"
-    BUTTON_DISABLED = WINDOW_NORMAL_DARK
-
-    # Status colors
-    ADMIN_ENABLED = "#308030"
-    ADMIN_DISABLED = "#803030"
+    BUTTON_NOTICE = "#907000"
+    BUTTON_DISABLED = "#2A2A2A"
 
 class Messages:
     """GUI messages."""
 
     # Status messages
-    CLICK_TARGET = "Click on the target window..."
-    WINDOW_SELECT_FAILED = "Window selection failed or cancelled."
     ALWAYS_ON_TOP_DISABLED = "AOT: None"
-    SELECT_CONFIG = "Select a configuration"
-
-    # Error messages
-    ERROR_TOO_MANY_WINDOWS = f"Please select {UIConstants.MAX_WINDOWS} or fewer windows"
-    ERROR_NO_WINDOWS = "Please select at least one window"
-    ERROR_NO_APP = "Error: Application reference not set"
-    ERROR_TOGGLE_COMPACT = "Error toggling compact mode: {}"
-    ERROR_GUI_CREATION = "Error creating GUI: {}"
-    ERROR_NO_CONFIG = "No config found"
 
 class Fonts:
     """GUI fonts."""
 
-    TEXT_TITLE = ("Consolas", 11, "bold")
     TEXT_NORMAL = ("Consolas", 10, "normal")
-    TEXT_BOLD = ("Consolas", 10, "bold")
     TEXT_SMALL = ("Consolas", 8, "normal")
