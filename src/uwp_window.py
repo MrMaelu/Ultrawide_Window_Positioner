@@ -1,5 +1,6 @@
 """Window management for Ultrawide Window Positioner."""
 import logging
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -40,15 +41,6 @@ logger = logging.getLogger(__name__)
 
 MIN_W = 250
 MIN_H = 250
-IGNORED_WINDOWS = {
-    "ultrawide window positioner",
-    "program manager",
-    "windows input experience",
-    "microsoft text input application",
-    "settings",
-    "windows shell experience host",
-}
-
 
 @dataclass
 class WindowCache:
@@ -94,6 +86,7 @@ class WindowManager:
         self.window_cache = WindowCache(ttl=1.0)
         self.valid_titles_cache = WindowCache(ttl=1.0)
         self.all_windows = None
+        self.ignored_windows = []
 
 
     def refresh_window_cache(self) -> None:
@@ -128,6 +121,7 @@ class WindowManager:
         apply_order_str = settings.apply_order
         if apply_order_str:
             apply_order = apply_order_str.split(",")
+
 
         self.bring_to_front(hwnd)
         for raw_key in apply_order:
@@ -252,7 +246,7 @@ class WindowManager:
         # Check all topmost windows are managed
         invalid_topmost = self.topmost_windows - set(self.managed_windows)
         if invalid_topmost:
-            logger.error("Topmost set contains unmanaged windows: %s", {invalid_topmost})
+            logger.error("Topmost set contains unmanaged windows: %s", invalid_topmost)
             self.topmost_windows -= invalid_topmost  # Auto-heal
             issues_found = True
 
@@ -280,7 +274,7 @@ class WindowManager:
             info = get_window_info(hwnd)
             if info:
                 flag = HWND_TOPMOST if not info.aot else HWND_NOTOPMOST
-                win32gui.SetWindowPos(hwnd, flag, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER)
+                win32gui.SetWindowPos(hwnd, flag, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
 
         self.bring_to_front(own_hwnd)
 
@@ -388,8 +382,16 @@ class WindowManager:
             def enum_window_callback(hwnd: int, windows: list) -> bool:
                 if win32gui.IsWindowVisible(hwnd) and hwnd != own_hwnd:
                     win_info = get_window_info(hwnd)
-                    if win_info and win_info.title.lower() not in IGNORED_WINDOWS:
-                        title = win_info.app_name.split(".")[0] if len(win_info.title) > max_length else win_info.title
+                    if not win_info:
+                        return True
+
+                    title = win_info.title
+                    x = re.search(r"(.+)v\d+", title, re.IGNORECASE)
+                    if x:
+                        title = x.group(1).strip()
+
+                    if title.lower() not in self.ignored_windows:
+                        title = win_info.app_name.split(".")[0] if len(win_info.title) > max_length else title
 
                         windows.append(clean_window_title(title)[0])
                         info.append(win_info)
@@ -442,7 +444,7 @@ class WindowManager:
     def set_always_on_top(self, hwnd: int, enable: bool = True) -> None:  # noqa: FBT001, FBT002
         """Set the window to always on top and add it to the topmost windows set."""
         flag = HWND_TOPMOST if enable else HWND_NOTOPMOST
-        win32gui.SetWindowPos(hwnd, flag, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER)
+        win32gui.SetWindowPos(hwnd, flag, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
 
         if enable and hwnd not in self.topmost_windows:
             self.topmost_windows.add(hwnd)

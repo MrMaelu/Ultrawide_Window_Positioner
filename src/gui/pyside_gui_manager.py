@@ -112,7 +112,10 @@ class PysideGuiManager(QMainWindow):
          self.details,
          self.hotkey,
          self.layouts,
-         self.overrides) = self.cfg_man.load_settings()
+         self.overrides,
+         self.ignored_windows) = self.cfg_man.load_settings()
+
+        self.win_man.ignored_windows = self.ignored_windows
 
         self._init_screen()
         self._init_ui_containers()
@@ -684,6 +687,7 @@ class PysideGuiManager(QMainWindow):
             hotkey=self.hotkey,
             layouts=self.layouts,
             overrides=self.overrides,
+            ignored_windows=self.ignored_windows,
             )
 
     def reapply_timer(self) -> None:
@@ -938,9 +942,6 @@ class PysideGuiManager(QMainWindow):
             self.compact_mode = not self.compact_mode
             self._save_settings()
 
-        font_size = text_small.pointSize() if self.compact_mode else text_normal.pointSize()
-        self.setStyleSheet(f"QWidget {{ font-size: {font_size}pt; }}")
-
         if self.compact_mode:
             self.toggle_compact_button.setText("Full mode")
             self.aot_button.setText("AOT")
@@ -955,6 +956,8 @@ class PysideGuiManager(QMainWindow):
         self.setMinimumSize(min_width, min_height)
         self._position_app_window()
         self.on_config_select()
+        self._apply_theme()
+
 
     def _position_app_window(self) -> None:
         width, height, _, _ = self.get_geometry_and_minsize()
@@ -1094,7 +1097,7 @@ class PysideGuiManager(QMainWindow):
                 hwnd = window["hwnd"]
                 self.win_man.add_managed_window(hwnd)
 
-                settings = self.win_man.get_window_metrics(hwnd)
+                settings = config_to_metrics(self.applied_config, window["short_name"])
                 if settings:
                     self.win_man.apply_window_config(settings, hwnd)
                 else:
@@ -1145,7 +1148,7 @@ class PysideGuiManager(QMainWindow):
             win_match_config = self.verify_window_data(self.applied_config, matching)
             for win in win_match_config:
                 if not win["identical"]:
-                    settings = self.win_man.get_window_metrics(win["hwnd"])
+                    settings = config_to_metrics(self.applied_config, win["short_name"])
                     if settings:
                         self.win_man.apply_window_config(settings, win["hwnd"])
                     else:

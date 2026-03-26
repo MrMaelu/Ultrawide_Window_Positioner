@@ -671,7 +671,7 @@ class ConfigDialog(QDialog):
 
 
     def _calculate_offsets(self, x: int, y: int, w: int, h: int, title: str) -> tuple[int, int, int, int, str]:
-        pure_title = clean_window_title(title)[0].lower()
+        pure_title = clean_window_title(title)[0]
         if pure_title in self.auto_align_offsets:
             new_x = x + self.auto_align_offsets[pure_title][0]
             new_y = y + self.auto_align_offsets[pure_title][1]

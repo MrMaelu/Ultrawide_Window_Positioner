@@ -2,6 +2,16 @@
 
 AOT_HOTKEY = "alt+home"
 
+IGNORED_WINDOWS = [
+            "ultrawide window positioner",
+            "program manager",
+            "windows input experience",
+            "microsoft text input application",
+            "settings",
+            "windows shell experience host",
+            ]
+
+
 class LayoutDefaults:
     """Default layouts."""
 
@@ -206,3 +216,4 @@ class Fonts:
 
     TEXT_NORMAL = ("Consolas", 10, "normal")
     TEXT_SMALL = ("Consolas", 8, "normal")
+
