@@ -12,10 +12,10 @@ class LayoutDefaults:
 #################
 # Layout:
 #################
-#   Auto-alignement layouts.
+#   Auto-alignment layouts.
 #     1: aspect w, aspect h, alignment for 1 window
 #     2: aspect w, aspect h, alignment for 2 windows
-#     3: aspect w, aspect h, left weigth for 3 windows
+#     3: aspect w, aspect h, left weight for 3 windows
 #     4: four window layout. For each window:
 #       ( x, y ) , ( width, height )
 #       Values are relative to screen size.
@@ -26,7 +26,7 @@ class LayoutDefaults:
 #################
 # Overrides:
 #################
-#   Position and size offsets for auto-alignement.
+#   Position and size offsets for auto-alignment.
 #   Format:
 #       Title = (x offset, y offset, width offset, height offset, force titlebar)
 #   Examples:

@@ -1,16 +1,12 @@
 """Configuration manager for the Ultrawide Window Positioner."""
 import ast
-import configparser
+from configparser import ConfigParser
 import contextlib
 import json
 import logging
 import os
 import re
 from pathlib import Path
-
-import pygetwindow as gw
-import win32con
-import win32gui
 
 from constants import AOT_HOTKEY, LayoutDefaults
 
@@ -24,10 +20,79 @@ logging.basicConfig(
     )
 logger = logging.getLogger(__name__)
 
+
+def config_to_dict(config: ConfigParser) -> dict:
+    config_dict = {s:dict(config.items(s)) for s in config.keys()}
+    config_dict["DEFAULT"] = dict(config.defaults())
+    return config_dict
+
+def get_window_settings_from_config(config: ConfigParser, section:str)->dict:
+    """Extract the relevant settings from the config for a given section."""
+    return {
+        "position": config.get(section, "position", fallback=None),
+        "size": config.get(section, "size", fallback=None),
+        "always_on_top": config.getboolean(section, "always_on_top", fallback=False),
+        "has_titlebar": config.getboolean(section, "titlebar", fallback=True),
+    }
+
+def _get_aot_sections(config:ConfigParser)->list:
+    """Get sections with always-on-top enabled."""
+    aot_sections = []
+    for section in config.sections():
+        if config[section].getboolean("always_on_top", fallback=False):
+            aot_sections.append(clean_window_title(section, sanitize=True))  # noqa: PERF401
+
+    return aot_sections
+
+def get_ignore_list(config: ConfigParser) -> list[str]:
+    for title in config.sections():
+        if config[title].get("ignore_list"):
+            return config[title].get("ignore_list").split(",")
+    return []
+
+
+def validate_and_repair_config(config:ConfigParser)->ConfigParser:  # noqa: C901, PLR0912
+    """Validate and repair a config file."""
+    repaired_config = ConfigParser()
+    repaired_config.optionxform = str
+
+    for section in config.sections():
+        if not section.strip():
+            continue
+
+        valid_items = {}
+        for key, value in config.items(section):
+            if key == "position":
+                valid_items[key] = value if re.match(r"^-?\d+,-?\d+$", value) else "0,0"
+            elif key == "size":
+                valid_items[key] = value if re.match(r"^\d+,\d+$", value) else "800,600"
+            elif key == "always_on_top":
+                valid_items[key] = value.lower() if value.lower() in ("true", "false") else "false"
+            elif key == "titlebar":
+                valid_items[key] = value.lower() if value.lower() in ("true", "false") else "true"
+            elif key == "process_priority":
+                valid_items[key] = value.lower() if value.lower() in ("true", "false") else "false"
+            elif value is not None and value.strip():
+                valid_items[key] = value.strip()
+
+        if valid_items:
+            repaired_config.add_section(section)
+            for key, val in valid_items.items():
+                repaired_config.set(section, key, str(val))
+
+    if config.has_option("DEFAULT", "apply_order"):
+        repaired_config["DEFAULT"]["apply_order"] = config.get("DEFAULT", "apply_order")
+
+    if config.has_option("DEFAULT", "ignore_list"):
+        repaired_config["DEFAULT"]["ignore_list"] = config.get("DEFAULT", "ignore_list")
+
+    return repaired_config
+
+
 class ConfigManager:
     """Configuration manager."""
 
-    def __init__(self, base_path:str|None)->None:
+    def __init__(self, base_path:Path|None)->None:
         """Initialize variables."""
         self.base_path = base_path
 
@@ -52,10 +117,34 @@ class ConfigManager:
         if not Path.exists(self.settings_dir):
             Path.mkdir(self.settings_dir, parents=True)
 
+    def get_search_titles(self) -> dict:
+        """Get all search titles from config files."""
+        search_titles = {}
+        config_files, _ = self.list_config_files()
 
-    def load_or_create_layouts(self, path:str, *, reset:bool=False)->tuple[dict,dict]:
+        for config_file in config_files:
+            config = self.load_config(config_file)
+
+            if not config:
+                continue
+
+            for section in config.sections():
+                title = config[section].get("search_title", fallback=section)
+                cleaned_title = clean_window_title(title, sanitize=True)
+                if cleaned_title not in search_titles:
+                    search_titles[cleaned_title] = []
+                search_titles[cleaned_title].append((config_file, section))
+
+        return search_titles
+
+
+    def load_or_create_layouts(self, path:str | None=None, *, reset:bool=False)->tuple[dict,dict]:
         """Load layouts from config, or create new config with defaults."""
-        path = Path(path)
+        if path:
+            path = Path(path)
+        else:
+            path = self.layout_config_file
+
         sections = ("Layouts", "Overrides")
 
         defaults = {
@@ -63,7 +152,7 @@ class ConfigManager:
             sections[1]: {str(k): repr(v) for k, v in self.layout_overrides.items()},
         }
 
-        config = configparser.ConfigParser()
+        config = ConfigParser()
 
         # Create/reset
         if reset or not path.exists():
@@ -93,11 +182,17 @@ class ConfigManager:
             with contextlib.suppress(Exception):
                 layouts[int(k)] = ast.literal_eval(v)
 
+        if not layouts:
+            layouts = self.default_layouts
+
         for k, v in config[sections[1]].items():
             with contextlib.suppress(Exception):
                 overrides[str(k)] = ast.literal_eval(v)
 
-        return  layouts or self.default_layouts, overrides or self.layout_overrides
+        if not overrides:
+            overrides = self.layout_overrides
+
+        return  layouts, overrides
 
 
     def list_config_files(self)->tuple[list,list]:
@@ -109,8 +204,10 @@ class ConfigManager:
 
         config_files.sort()
         config_names = [
-            f.name.replace("config_", "").replace(".ini","") for f in config_files
-            ]
+            f.name.replace("config_", "").replace(".ini","")
+            for f in config_files
+        ]
+
         return config_files, config_names
 
 
@@ -121,19 +218,19 @@ class ConfigManager:
             config.write(f)
 
 
-    def load_config(self, config_path:str)->object:
+    def load_config(self, config_path:str)-> ConfigParser | None:
         """Load a configuration file."""
-        config = configparser.ConfigParser()
+        config = ConfigParser()
         full_path = Path(self.config_dir, config_path)
         if Path.exists(full_path):
             config.read(full_path)
-            return config
+            valid_config = validate_and_repair_config(config)
+            return valid_config
         return None
 
 
-    def load_settings(self)-> tuple[bool,bool,bool,bool]:
+    def load_settings(self)-> tuple[bool,bool,bool,bool, str]:
         """Load application settings."""
-        defaults = 0, 0, 0, 0, AOT_HOTKEY
         if Path.exists(self.settings_file):
             with Path.open(self.settings_file) as f:
                 settings = json.load(f)
@@ -143,7 +240,8 @@ class ConfigManager:
                 details = settings.get("details", 0)
                 hotkey = settings.get("hotkey", AOT_HOTKEY)
                 return compact, use_images, snap, details, hotkey
-        return defaults
+
+        return False, False, False, False, AOT_HOTKEY
 
 
     def save_settings(self, *,
@@ -165,56 +263,39 @@ class ConfigManager:
         return True
 
 
-    def detect_default_config(self)->list:
+    def detect_default_config(self, windows: list)->str:
         """Detect and return the best default configuration."""
         c_files, c_names = self.list_config_files()
-        highest_matching_windows = [None, 0]
-        full_match = ""
-
-        all_titles = gw.getAllTitles()
+        highest_matching_windows = ["", 0]
+        aot_match = ""
 
         for file in c_files:
-            matching_windows = 0
             config = self.load_config(file)
             if not config:
                 continue
 
-            aot_sections = self._get_aot_sections(config)
-            if match_titles(aot_sections, all_titles):
-                full_match = c_names[c_files.index(file)]
+            aot_sections = _get_aot_sections(config)
+            if match_titles(aot_sections, windows):
+                aot_match = c_names[c_files.index(file)]
 
-            match_list = match_titles(config.sections(), all_titles, get_titles=True)
+            match_list = match_titles(config.sections(), windows, get_titles=True)
             matching_windows = len(match_list)
 
             if matching_windows > highest_matching_windows[1]:
-                highest_matching_windows[0] = (
-                    c_names[c_files.index(file)]
-                    )
+                highest_matching_windows[0] = c_names[c_files.index(file)]
                 highest_matching_windows[1] = matching_windows
 
-        if full_match:
-            return full_match
+        if aot_match:
+            return aot_match
 
         if highest_matching_windows[0]:
             return highest_matching_windows[0]
 
         return c_names[0] if c_names else None
 
-
-
-    def _get_aot_sections(self, config:object)->list:
-        """Get sections with always-on-top enabled."""
-        aot_sections = []
-        for section in config.sections():
-            if config[section].getboolean("always_on_top", fallback=False):
-                aot_sections.append(clean_window_title(section, sanitize=True))  # noqa: PERF401
-
-        return aot_sections
-
-
     def save_window_config(self,
                            config_name:str,
-                           window_data:list,
+                           window_data:dict,
                            apply_order:list,
                            ignore_list:list | None =None,
                            )->bool:
@@ -224,7 +305,7 @@ class ConfigManager:
 
         config_name = clean_window_title(config_name, sanitize=True, titlecase=True)
 
-        config = configparser.ConfigParser()
+        config = ConfigParser()
         config.optionxform = str
 
         # Prepare and sort entries by x-position
@@ -233,11 +314,10 @@ class ConfigManager:
             if title and title.strip():
                 if not settings.get("name"):
                     continue
-                section_name = settings.get("name")
-                section_name = clean_window_title(section_name, sanitize=True)
+                section_name = clean_window_title(settings.get("name"), sanitize=True)
                 position = str(settings.get("position") or "0,0")
-                x = int(position.split(",")[0]) or 0
-                entries.append((x, section_name, settings))
+                pos_x = int(position.split(",")[0]) or 0
+                entries.append((pos_x, section_name, settings))
 
         entries.sort(key=lambda x: x[0])  # Left to right by x-position
 
@@ -246,22 +326,21 @@ class ConfigManager:
             config[section_name] = {
                 "position": str(settings.get("position") or "0,0"),
                 "size": str(settings.get("size") or "100,100"),
-                "always_on_top": (str(settings.get("always_on_top")).lower()
-                                    if "always_on_top" in settings else "false"),
-                "titlebar": (str(settings.get("titlebar")).lower()
-                                if "titlebar" in settings else "true"),
-                "process_priority": (str(settings.get("process_priority")).lower()
-                                if "process_priority" in settings else "false"),
+                "always_on_top": str(settings.get("always_on_top")).lower() if "always_on_top" in settings else "false",
+                "titlebar": str(settings.get("titlebar")).lower() if "titlebar" in settings else "true",
+                "process_priority": (
+                    str(settings.get("process_priority")).lower() if "process_priority" in settings else "false"
+                ),
             }
 
-        # Store apply order in DEFAULT section (no new window section needed)
+        # Store apply order and ignore list in DEFAULT section
         if apply_order:
             config["DEFAULT"]["apply_order"] = ",".join(apply_order)
 
         if ignore_list:
             config["DEFAULT"]["ignore_list"] = ",".join(ignore_list)
 
-        validated_config = self.validate_and_repair_config(config)
+        validated_config = validate_and_repair_config(config)
 
         if not Path.is_dir(self.config_dir):
             return False
@@ -276,102 +355,15 @@ class ConfigManager:
         return True
 
 
-    def collect_window_settings(self, window_title:str)->dict|None:
-        """Get settings for a window."""
-        window = gw.getWindowsWithTitle(window_title)[0]
-        # Get the current window state
-        has_titlebar = bool(win32gui.GetWindowLong(window._hWnd, win32con.GWL_STYLE)  # noqa: SLF001
-                        & win32con.WS_CAPTION)
-        is_topmost = (window._hWnd == win32gui.GetForegroundWindow())  # noqa: SLF001
-        return {
-            "position": f"{max(-50, window.left + 50)},{max(-50, window.top + 50)}",
-            "size": f"{max(250, window.width)},{max(250, window.height)}",
-            "always_on_top": str(is_topmost).lower(),
-            "titlebar": str(has_titlebar).lower(),
-            "original_title": window_title,
-            "name": clean_window_title(window_title, sanitize=True),
-        }
-
-
     def delete_config(self, name:str)->bool:
         """Delete a config file."""
         path = Path(self.config_dir, f"config_{name}.ini")
         if Path.exists(path):
-            Path.unlink(path)
-            return True
-        return False
-
-
-    def validate_and_repair_config(self, config:str)->object:  # noqa: C901, PLR0912
-        """Validate and repair a config file."""
-        repaired_config = configparser.ConfigParser()
-        repaired_config.optionxform = str
-
-        for section in config.sections():
-            if not section.strip():
-                continue
-
-            valid_items = {}
-            for key, value in config.items(section):
-                if key == "position":
-                    valid_items[key] = (
-                        value if re.match(r"^-?\d+,-?\d+$", value) else "0,0"
-                        )
-                elif key == "size":
-                    valid_items[key] = (
-                        value if re.match(r"^\d+,\d+$", value) else "800,600"
-                        )
-                elif key == "always_on_top":
-                    valid_items[key] = (
-                        value.lower()
-                        if value.lower() in ("true", "false") else "false"
-                        )
-                elif key == "titlebar":
-                    valid_items[key] = (
-                        value.lower()
-                        if value.lower() in ("true", "false") else "true")
-                elif key == "process_priority":
-                    valid_items[key] = (
-                        value.lower()
-                        if value.lower() in ("true", "false") else "false"
-                        )
-                elif value is not None and value.strip():
-                    valid_items[key] = value.strip()
-
-            if valid_items:
-                repaired_config.add_section(section)
-                for key, val in valid_items.items():
-                    repaired_config.set(section, key, str(val))
-
-        if config.has_option("DEFAULT", "apply_order"):
-            repaired_config["DEFAULT"]["apply_order"] = (
-                config.get("DEFAULT", "apply_order")
-                )
-
-        if config.has_option("DEFAULT", "ignore_list"):
-            repaired_config["DEFAULT"]["ignore_list"] = (
-                config.get("DEFAULT", "ignore_list")
-                )
-
-        return repaired_config
-
-
-    def update_rawg_url(self, title:str, rawg_url:str)->bool:
-        """Update the RAWG URL for a title."""
-        config = configparser.ConfigParser()
-        config_files, _config_names = self.list_config_files()
-        for config_file in config_files:
-            full_path = Path(self.config_dir, config_file)
-            if not Path.exists(full_path):
-                continue
-            config.read(full_path)
-            if not config.has_section(title):
-                config.add_section(title)
-
-            config.set(title, "rawg_url", rawg_url)
-
-            with Path.open(config_file, "w") as f:
-                config.write(f)
+            try:
+                Path.unlink(path)
+            except PermissionError as e:
+                logger.info("Failed to delete config: %s", e)
+                return False
             return True
         return False
 

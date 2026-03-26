@@ -3,9 +3,10 @@ import logging
 from pathlib import Path
 
 """Rotate log files to keep a history of logs."""
-log_path = Path("uwp_debug.log")
-log_path_old = Path("uwp_debug_old.log")
-log_path_old_old = Path("uwp_debug_old_old.log")
+log_folder = Path("logs")
+log_path = Path(log_folder / "uwp_debug.log")
+log_path_old = Path(log_folder / "uwp_debug_old.log")
+log_path_old_old = Path(log_folder / "uwp_debug_old_old.log")
 
 try:
     if log_path.exists():

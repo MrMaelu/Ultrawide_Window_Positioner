@@ -1,12 +1,14 @@
 """Collection of utilities."""
+import os
 import re
 import sys
-from dataclasses import dataclass
-from pathlib import Path
+from ctypes import windll
 
 import roman
 import win32api
 
+from pathlib import Path
+from dataclasses import dataclass
 
 @dataclass
 class WindowInfo:
@@ -91,7 +93,7 @@ def match_titles(
     """Compare two lists for matching titles.
 
     Return True when a window title match a section name.
-    If get_titles is True, return a dict of section: title match.
+    If the variable get_titles is True, return a dict of section: title match.
     """
     if not sections or not titles:
         return False
@@ -122,8 +124,7 @@ def match_titles(
 
     return False
 
-
-def get_version() -> str:
+def get_version() -> str | None:
     """Read the application version from version.txt file."""
     try:
         if hasattr(__import__("sys"), "_MEIPASS"):
@@ -132,18 +133,14 @@ def get_version() -> str:
             info = win32api.GetFileVersionInfo(str(exe), "\\")
             ms = info["FileVersionMS"]
             ls = info["FileVersionLS"]
-            version = (win32api.HIWORD(ms), win32api.LOWORD(ms),
-                    win32api.HIWORD(ls), win32api.LOWORD(ls))
+            version = (win32api.HIWORD(ms), win32api.LOWORD(ms), win32api.HIWORD(ls), win32api.LOWORD(ls))
             return f"{version[0]}.{version[1]}.{version[2]}.{version[3]}"
 
         version_file = Path(__file__).resolve().parent.parent / "version.txt"
         if version_file.exists():
             with Path.open(version_file, "r", encoding="utf-8") as f:
                 content = f.read()
-                # Extract filevers tuple: filevers=(1, 0, 3, 0)
-                match = re.search(
-                    r"filevers=\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)", content,
-                    )
+                match = re.search(r"filevers=\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)", content)
                 if match:
                     major, minor, patch, build = match.groups()
                     return f"{major}.{minor}.{patch}.{build}"
@@ -152,3 +149,29 @@ def get_version() -> str:
 
     return None
 
+def to_bool(val: str | bool) -> bool:
+    """Convert a string value to bool."""
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        return val.lower() in ("1", "true", "yes", "on")
+    return bool(val)
+
+
+def validate_int_pair(value: str, default: tuple[int, int] = (0, 0)) -> tuple[int, int]:
+    """Check if int pair is valid."""
+    try:
+        x, y = map(int, value.split(","))
+    except ValueError:
+        return default
+    else:
+        return x, y
+
+def restart_as_admin()->None:
+    """Restart the application with admin privileges."""
+    rc_code = 32
+    if sys.platform == "win32":
+        params = " ".join([f'"{arg}"' for arg in sys.argv])
+        rc = windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
+        if rc > rc_code:
+            os._exit(0)
