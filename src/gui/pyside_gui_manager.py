@@ -217,7 +217,7 @@ class PysideGuiManager(QMainWindow):
             self.edit_config_button,
             self.image_folder_button,
             self.screenshot_button,
-            self.settings.details_switch,
+            self.details_switch,
             self.toggle_images_switch,
             self.aot_label,
             self.spacer_1,
@@ -225,7 +225,7 @@ class PysideGuiManager(QMainWindow):
             self.left_radio,
             self.center_radio,
             self.right_radio,
-            self.settings.snap_label,
+            self.snap_label,
         ]
 
         resized_buttons = [
@@ -445,9 +445,9 @@ class PysideGuiManager(QMainWindow):
         self.reapply_pause_label.setContentsMargins(10, 0, 10, 0)
         aot_bottom.addWidget(self.reapply_pause_label, alignment=Qt.AlignmentFlag.AlignLeft)
 
-        self.settings.snap_label = QLabel("Application open position:", self)
-        self.settings.snap_label.setContentsMargins(10, 0, 50, 0)
-        aot_bottom.addWidget(self.settings.snap_label, alignment=Qt.AlignmentFlag.AlignRight)
+        self.snap_label = QLabel("Application open position:", self)
+        self.snap_label.setContentsMargins(10, 0, 50, 0)
+        aot_bottom.addWidget(self.snap_label, alignment=Qt.AlignmentFlag.AlignRight)
 
         self.main_layout.addLayout(aot_bottom)
 
@@ -472,14 +472,14 @@ class PysideGuiManager(QMainWindow):
         img_l.setSpacing(20)
 
         self.auto_apply_switch = QCheckBox("Auto re-apply", self)
-        self.settings.details_switch = QCheckBox("Show window details", self)
+        self.details_switch = QCheckBox("Show window details", self)
         self.toggle_images_switch = QCheckBox("Images", self)
 
-        self.settings.details_switch.setChecked(self.settings.details)
+        self.details_switch.setChecked(self.settings.details)
         self.toggle_images_switch.setChecked(self.settings.use_images)
 
         img_l.addWidget(self.auto_apply_switch)
-        img_l.addWidget(self.settings.details_switch)
+        img_l.addWidget(self.details_switch)
         img_l.addWidget(self.toggle_images_switch)
         img_l.addStretch()  # push snap group right
 
@@ -494,10 +494,10 @@ class PysideGuiManager(QMainWindow):
         for radio in [self.left_radio, self.center_radio, self.right_radio]:
             radio.setFixedWidth(radio_width)
 
-        self.settings.snap_group = QButtonGroup(self)
-        self.settings.snap_group.addButton(self.left_radio, 1)
-        self.settings.snap_group.addButton(self.center_radio, 0)
-        self.settings.snap_group.addButton(self.right_radio, 2)
+        self.snap_group = QButtonGroup(self)
+        self.snap_group.addButton(self.left_radio, 1)
+        self.snap_group.addButton(self.center_radio, 0)
+        self.snap_group.addButton(self.right_radio, 2)
 
         for radio in [self.left_radio, self.center_radio, self.right_radio]:
             snap_l.addWidget(radio)
@@ -525,14 +525,14 @@ class PysideGuiManager(QMainWindow):
 
         # Switches
         self.auto_apply_switch.stateChanged.connect(self._on_reapply_toggle)
-        self.settings.details_switch.stateChanged.connect(self._on_details_toggle)
+        self.details_switch.stateChanged.connect(self._on_details_toggle)
         self.toggle_images_switch.stateChanged.connect(self._on_images_toggle)
 
         self.filter_switch.stateChanged.connect(self.update_config_list)
         self.theme_switch.stateChanged.connect(self._on_theme_toggle)
 
         # Radio buttons
-        self.settings.snap_group.buttonToggled.connect(self._on_snap_toggle)
+        self.snap_group.buttonToggled.connect(self._on_snap_toggle)
 
     # ------------- Theme & toggles -------------
 
@@ -993,7 +993,7 @@ class PysideGuiManager(QMainWindow):
         self.reapply = self.auto_apply_switch.isChecked()
 
     def _on_details_toggle(self) -> None:
-        self.settings.details = self.settings.details_switch.isChecked()
+        self.settings.details = self.details_switch.isChecked()
         self._save_settings()
         if self.layout_frame:
             self.layout_frame.window_details = self.settings.details
