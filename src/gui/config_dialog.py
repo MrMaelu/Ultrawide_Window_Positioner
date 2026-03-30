@@ -73,6 +73,7 @@ class ConfigDialog(QDialog):
         """Initialize the dialog with window selection and settings callbacks."""
         super().__init__(parent)
         self.hide()
+        self.app_settings = parent.settings
         self.err_msg = QMessageBox(self)
         self.lower_switch = None
         self.upper_switch = None
@@ -429,7 +430,7 @@ class ConfigDialog(QDialog):
 
         self.layout_preview = ScreenLayoutWidget(
             self, self.screen_width, self.screen_height_org,
-            windows, self.assets_dir, window_details=True,
+            windows, self.assets_dir, self.app_settings,
         )
         self.layout_container_layout.addWidget(self.layout_preview)
 

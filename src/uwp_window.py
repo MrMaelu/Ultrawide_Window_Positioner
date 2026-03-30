@@ -385,7 +385,7 @@ class WindowManager:
                     if not win_info:
                         return True
 
-                    title = win_info.title
+                    title = clean_window_title(win_info.title, titlecase=True)[0]
                     x = re.search(r"(.+)v\d+", title, re.IGNORECASE)
                     if x:
                         title = x.group(1).strip()

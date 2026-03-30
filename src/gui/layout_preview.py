@@ -16,6 +16,8 @@ from uwp_utils import WindowInfo, convert_hex_to_rgb
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from uwp_config import ApplicationSettings
+
 logger = logging.getLogger(__name__)
 
 
@@ -28,7 +30,7 @@ class ScreenLayoutWidget(QWidget):
                  screen_height: int,
                  windows: list[WindowInfo],
                  assets_dir: Path,
-                 window_details: int = 1,
+                 app_settings: ApplicationSettings,
                  ) -> None:
         """Set up base variables."""
         super().__init__(parent)
@@ -38,12 +40,13 @@ class ScreenLayoutWidget(QWidget):
         self.active_labels = None
         self.parent = parent
         self.colors = self.parent.colors
-        self.use_images = self.parent.use_images
         self.assets_dir = assets_dir
 
         self.windows = windows
 
-        self.window_details = window_details
+        self.window_details = app_settings.details
+        self.use_images = app_settings.use_images
+
         self.screen_width = screen_width
         self.screen_height = screen_height
 

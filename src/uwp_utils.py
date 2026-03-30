@@ -149,7 +149,7 @@ def clean_window_title(title:str, exe:str="", *, titlecase:bool=True)->list:
     title = parts[-1].strip()
 
     title = re.sub(r"\s+\d+%$", "", title)
-    title = re.sub(r'[<>:"/\\|?*\[\]]', "", title)
+    title = re.sub(r'[<>:"/\\|?*\[\]]', "", title.lower())
 
     title = uppercase_roman_numerals(title.title()) if titlecase else uppercase_roman_numerals(title)
     if exe:

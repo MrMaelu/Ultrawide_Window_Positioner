@@ -93,7 +93,6 @@ class PysideGuiManager(QMainWindow):
         self.applied_config = None
         self.applied_config_name = None
 
-        self.compact_mode = None
         self.style_dark = True
 
         self.timer = None
@@ -106,16 +105,10 @@ class PysideGuiManager(QMainWindow):
 
         self._init_managers()
 
-        (self.compact_mode,
-         self.use_images,
-         self.snap,
-         self.details,
-         self.hotkey,
-         self.layouts,
-         self.overrides,
-         self.ignored_windows) = self.cfg_man.load_settings()
+        self.settings = self.cfg_man.load_settings()
 
-        self.win_man.ignored_windows = self.ignored_windows
+        low_ignore_list = [item.lower() for item in self.settings.ignored_windows]
+        self.win_man.ignored_windows = low_ignore_list
 
         self._init_screen()
         self._init_ui_containers()
@@ -125,7 +118,7 @@ class PysideGuiManager(QMainWindow):
         self.reapply_timer()
         self.managed_widget.installEventFilter(self)
 
-        global_hotkeys.register_hotkey(self.hotkey, self.toggle_always_on_top, None)
+        global_hotkeys.register_hotkey(self.settings.hotkey, self.toggle_always_on_top, None)
         global_hotkeys.start_checking_hotkeys()
 
         # Set window title with version
@@ -180,9 +173,9 @@ class PysideGuiManager(QMainWindow):
         """Set initial snap radio button based on snap value."""
         snap_left = 1
         snap_right = 2
-        if self.snap == snap_left:
+        if self.settings.snap == snap_left:
             self.left_radio.setChecked(True)
-        elif self.snap == snap_right:
+        elif self.settings.snap == snap_right:
             self.right_radio.setChecked(True)
         else:
             self.center_radio.setChecked(True)
@@ -202,7 +195,7 @@ class PysideGuiManager(QMainWindow):
     def get_geometry_and_minsize(self) -> tuple[int, int, int, int]:
         """Get the sizes needed to set geometry and minsize."""
         compact_height_factor = 1
-        if self.compact_mode:
+        if self.settings.compact:
             width = UIConstants.COMPACT_WIDTH
             height = UIConstants.COMPACT_HEIGHT
             min_width = UIConstants.COMPACT_WIDTH
@@ -224,7 +217,7 @@ class PysideGuiManager(QMainWindow):
             self.edit_config_button,
             self.image_folder_button,
             self.screenshot_button,
-            self.details_switch,
+            self.settings.details_switch,
             self.toggle_images_switch,
             self.aot_label,
             self.spacer_1,
@@ -232,7 +225,7 @@ class PysideGuiManager(QMainWindow):
             self.left_radio,
             self.center_radio,
             self.right_radio,
-            self.snap_label,
+            self.settings.snap_label,
         ]
 
         resized_buttons = [
@@ -321,7 +314,7 @@ class PysideGuiManager(QMainWindow):
         combo_layout = QHBoxLayout()
         combo_layout.setContentsMargins(10, 0, 10, 0)
         combo_layout.setSpacing(0)
-        width = min_width - 20 if self.compact_mode else min_width / 2
+        width = min_width - 20 if self.settings.compact else min_width / 2
 
         self.combo_box = QComboBox(self)
         self.combo_box.setFixedWidth(width)
@@ -343,7 +336,7 @@ class PysideGuiManager(QMainWindow):
     def _build_managed_area(self) -> None:
         """Create managed windows area with label and text edit."""
         self.managed_widget = QWidget(self)
-        self.managed_widget.setVisible(self.compact_mode)
+        self.managed_widget.setVisible(self.settings.compact)
 
         mf_layout = QVBoxLayout(self.managed_widget)
         mf_layout.setContentsMargins(10, 0, 10, 0)
@@ -369,7 +362,7 @@ class PysideGuiManager(QMainWindow):
             self.res_y,
             windows=[],
             assets_dir=self.assets_dir,
-            window_details=self.details,
+            app_settings=self.settings,
         )
         lc_layout.addWidget(self.layout_frame, 1)
         self.main_layout.addLayout(lc_layout, 1)
@@ -452,9 +445,9 @@ class PysideGuiManager(QMainWindow):
         self.reapply_pause_label.setContentsMargins(10, 0, 10, 0)
         aot_bottom.addWidget(self.reapply_pause_label, alignment=Qt.AlignmentFlag.AlignLeft)
 
-        self.snap_label = QLabel("Application open position:", self)
-        self.snap_label.setContentsMargins(10, 0, 50, 0)
-        aot_bottom.addWidget(self.snap_label, alignment=Qt.AlignmentFlag.AlignRight)
+        self.settings.snap_label = QLabel("Application open position:", self)
+        self.settings.snap_label.setContentsMargins(10, 0, 50, 0)
+        aot_bottom.addWidget(self.settings.snap_label, alignment=Qt.AlignmentFlag.AlignRight)
 
         self.main_layout.addLayout(aot_bottom)
 
@@ -479,14 +472,14 @@ class PysideGuiManager(QMainWindow):
         img_l.setSpacing(20)
 
         self.auto_apply_switch = QCheckBox("Auto re-apply", self)
-        self.details_switch = QCheckBox("Show window details", self)
+        self.settings.details_switch = QCheckBox("Show window details", self)
         self.toggle_images_switch = QCheckBox("Images", self)
 
-        self.details_switch.setChecked(self.details)
-        self.toggle_images_switch.setChecked(self.use_images)
+        self.settings.details_switch.setChecked(self.settings.details)
+        self.toggle_images_switch.setChecked(self.settings.use_images)
 
         img_l.addWidget(self.auto_apply_switch)
-        img_l.addWidget(self.details_switch)
+        img_l.addWidget(self.settings.details_switch)
         img_l.addWidget(self.toggle_images_switch)
         img_l.addStretch()  # push snap group right
 
@@ -501,10 +494,10 @@ class PysideGuiManager(QMainWindow):
         for radio in [self.left_radio, self.center_radio, self.right_radio]:
             radio.setFixedWidth(radio_width)
 
-        self.snap_group = QButtonGroup(self)
-        self.snap_group.addButton(self.left_radio, 1)
-        self.snap_group.addButton(self.center_radio, 0)
-        self.snap_group.addButton(self.right_radio, 2)
+        self.settings.snap_group = QButtonGroup(self)
+        self.settings.snap_group.addButton(self.left_radio, 1)
+        self.settings.snap_group.addButton(self.center_radio, 0)
+        self.settings.snap_group.addButton(self.right_radio, 2)
 
         for radio in [self.left_radio, self.center_radio, self.right_radio]:
             snap_l.addWidget(radio)
@@ -532,19 +525,19 @@ class PysideGuiManager(QMainWindow):
 
         # Switches
         self.auto_apply_switch.stateChanged.connect(self._on_reapply_toggle)
-        self.details_switch.stateChanged.connect(self._on_details_toggle)
+        self.settings.details_switch.stateChanged.connect(self._on_details_toggle)
         self.toggle_images_switch.stateChanged.connect(self._on_images_toggle)
 
         self.filter_switch.stateChanged.connect(self.update_config_list)
         self.theme_switch.stateChanged.connect(self._on_theme_toggle)
 
         # Radio buttons
-        self.snap_group.buttonToggled.connect(self._on_snap_toggle)
+        self.settings.snap_group.buttonToggled.connect(self._on_snap_toggle)
 
     # ------------- Theme & toggles -------------
 
     def _apply_theme(self) -> None:
-        font_size = text_small.pointSize() if self.compact_mode else text_normal.pointSize()
+        font_size = text_small.pointSize() if self.settings.compact else text_normal.pointSize()
         self.setStyleSheet(f"""
             QWidget {{
                 background: {self.colors.BACKGROUND};
@@ -679,16 +672,7 @@ class PysideGuiManager(QMainWindow):
 
     def _save_settings(self) -> None:
         """Save GUI settings."""
-        self.cfg_man.save_settings(
-            compact_mode=self.compact_mode,
-            use_images=self.use_images,
-            snap=self.snap,
-            details=self.details,
-            hotkey=self.hotkey,
-            layouts=self.layouts,
-            overrides=self.overrides,
-            ignored_windows=self.ignored_windows,
-            )
+        self.cfg_man.save_settings(self.settings)
 
     def reapply_timer(self) -> None:
         """Timer for auto reapply."""
@@ -939,20 +923,20 @@ class PysideGuiManager(QMainWindow):
     def toggle_compact(self, startup: int = 0) -> None:
         """Toggle between compact and full mode."""
         if not startup:
-            self.compact_mode = not self.compact_mode
+            self.settings.compact = not self.settings.compact
             self._save_settings()
 
-        if self.compact_mode:
+        if self.settings.compact:
             self.toggle_compact_button.setText("Full mode")
             self.aot_button.setText("AOT")
             self.detect_config_button.setText("Detect")
         else:
             self.toggle_compact_button.setText("Compact mode")
-            self.aot_button.setText(f"Toggle AOT ({self.hotkey})")
+            self.aot_button.setText(f"Toggle AOT ({self.settings.hotkey})")
             self.detect_config_button.setText("Detect config")
 
         width, height, min_width, min_height = self.get_geometry_and_minsize()
-        self.toggle_elements(compact=self.compact_mode, min_width=min_width)
+        self.toggle_elements(compact=self.settings.compact, min_width=min_width)
         self.setMinimumSize(min_width, min_height)
         self._position_app_window()
         self.on_config_select()
@@ -963,11 +947,11 @@ class PysideGuiManager(QMainWindow):
         width, height, _, _ = self.get_geometry_and_minsize()
         snap_left = 1
         snap_right = 2
-        if self.snap == 0:
+        if self.settings.snap == 0:
             pos_x = (self.res_x // 2) - (width // 2)
-        elif self.snap == snap_left:
+        elif self.settings.snap == snap_left:
             pos_x = 0
-        elif self.snap == snap_right:
+        elif self.settings.snap == snap_right:
             pos_x = self.res_x - width
         else:
             pos_x = 100
@@ -1009,28 +993,28 @@ class PysideGuiManager(QMainWindow):
         self.reapply = self.auto_apply_switch.isChecked()
 
     def _on_details_toggle(self) -> None:
-        self.details = self.details_switch.isChecked()
+        self.settings.details = self.settings.details_switch.isChecked()
         self._save_settings()
         if self.layout_frame:
-            self.layout_frame.window_details = self.details
+            self.layout_frame.window_details = self.settings.details
             self.layout_frame.update()
 
     def _on_images_toggle(self) -> None:
-        self.use_images = self.toggle_images_switch.isChecked()
+        self.settings.use_images = self.toggle_images_switch.isChecked()
         self._save_settings()
         if self.layout_frame:
-            self.layout_frame.use_images = self.use_images
+            self.layout_frame.use_images = self.settings.use_images
             self.layout_frame.update()
 
     # Radio button actions
 
     def _on_snap_toggle(self, button: QRadioButton) -> None:
         if button == self.left_radio:
-            self.snap = 1
+            self.settings.snap = 1
         elif button == self.center_radio:
-            self.snap = 0
+            self.settings.snap = 0
         elif button == self.right_radio:
-            self.snap = 2
+            self.settings.snap = 2
 
         self._position_app_window()
         self._save_settings()
@@ -1053,7 +1037,7 @@ class PysideGuiManager(QMainWindow):
             self.config = None
             missing = []
 
-        if not self.compact_mode:
+        if not self.settings.compact:
             self.update_window_layout(self.config, missing)
         else:
             self.update_managed_windows_list(self.config, missing)

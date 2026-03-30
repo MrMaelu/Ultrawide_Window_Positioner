@@ -7,6 +7,7 @@ import logging
 import os
 import re
 from configparser import ConfigParser
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from uwp_constants import AOT_HOTKEY, IGNORED_WINDOWS, LayoutDefaults
@@ -14,7 +15,28 @@ from uwp_constants import AOT_HOTKEY, IGNORED_WINDOWS, LayoutDefaults
 # Local imports
 from uwp_utils import clean_window_title, format_coords, match_titles, parse_coords
 
+DEFAULT_LAYOUTS = {
+    1: LayoutDefaults.ONE_WINDOW,
+    2: LayoutDefaults.TWO_WINDOWS,
+    3: LayoutDefaults.THREE_WINDOWS,
+    4: LayoutDefaults.FOUR_WINDOWS,
+    }
+
 logger = logging.getLogger(__name__)
+
+@dataclass
+class ApplicationSettings:
+    """Application settings container."""
+
+    compact: bool = False
+    use_images: bool = False
+    snap: int = 0
+    details: bool = False
+    hotkey: str = AOT_HOTKEY
+    layouts: dict = field(default_factory=lambda: DEFAULT_LAYOUTS.copy())
+    overrides: dict = LayoutDefaults.OVERRIDES
+    ignored_windows: list = field(default_factory=lambda: IGNORED_WINDOWS.copy())
+
 
 def get_ignore_list(config: ConfigParser) -> list[str]:
     """Get the ignore list from the config."""
@@ -95,15 +117,6 @@ class ConfigManager:
         self.settings_dir = Path(self.base_path, "settings")
         self.settings_file = Path(self.settings_dir, "settings.json")
 
-        self.default_layouts = {
-            1: LayoutDefaults.ONE_WINDOW,
-            2: LayoutDefaults.TWO_WINDOWS,
-            3: LayoutDefaults.THREE_WINDOWS,
-            4: LayoutDefaults.FOUR_WINDOWS,
-            }
-
-        self.layout_overrides = dict(LayoutDefaults.OVERRIDES)
-
         # Create directories if they don't exist
         if not Path.exists(self.config_dir):
             Path.mkdir(self.config_dir, parents=True)
@@ -113,15 +126,8 @@ class ConfigManager:
     def load_or_create_layouts(self)->tuple[dict,dict]:
         """Load layouts and overrides from settings.json."""
         # This method now delegates to load_settings for layouts and overrides
-        _, _, _, _, _, layouts, overrides = self.load_settings()
-
-        # Fall back to defaults if not found in settings
-        if not layouts:
-            layouts = self.default_layouts
-        if not overrides:
-            overrides = self.layout_overrides
-
-        return layouts, overrides
+        settings = self.load_settings()
+        return settings.layouts, settings.overrides
 
 
     def list_config_files(self)->dict:
@@ -143,9 +149,8 @@ class ConfigManager:
         return None
 
 
-    def load_settings(self)-> tuple[bool,bool,int,bool, str, dict, dict, list]:
+    def load_settings(self)-> ApplicationSettings:
         """Load application settings, layouts, and overrides."""
-        defaults = False, False, 0, False, AOT_HOTKEY, self.default_layouts, self.layout_overrides, IGNORED_WINDOWS
         if Path.exists(self.settings_file):
             with Path.open(self.settings_file) as f:
                 try:
@@ -157,41 +162,42 @@ class ConfigManager:
                     details = ui_settings.get("details", False)
                     hotkey = ui_settings.get("hotkey", AOT_HOTKEY)
 
-                    layouts = settings.get("layouts", self.default_layouts)
-                    overrides = settings.get("overrides", self.layout_overrides)
+                    layouts = settings.get("layouts", {})
+                    overrides = settings.get("overrides", {})
                     ignored_windows = settings.get("ignored_windows", [])
 
                 except (json.decoder.JSONDecodeError, AttributeError):
-                    return defaults
-                return compact, use_images, snap, details, hotkey, layouts, overrides, ignored_windows
+                    return ApplicationSettings()
 
-        return defaults
+                return ApplicationSettings(
+                    compact,
+                    use_images,
+                    snap,
+                    details,
+                    hotkey,
+                    layouts,
+                    overrides,
+                    ignored_windows,
+                    )
+
+        return ApplicationSettings()
 
 
-    def save_settings(self, *,  # noqa: PLR0913
-                      compact_mode:bool,
-                      use_images:bool,
-                      snap:int,
-                      details:bool,
-                      hotkey:str=AOT_HOTKEY,
-                      layouts:dict | None=None,
-                      overrides:dict | None=None,
-                      ignored_windows:list | None=None,
-                      )->bool:
+    def save_settings(self, app_settings: ApplicationSettings)->bool:
         """Save application settings, optionally including layouts and overrides."""
         settings = {
             "ui": {
-                "compact": compact_mode,
-                "use_images": use_images,
-                "snap": snap,
-                "details": details,
-                "hotkey": hotkey,
+                "compact": app_settings.compact,
+                "use_images": app_settings.use_images,
+                "snap": app_settings.snap,
+                "details": app_settings.details,
+                "hotkey": app_settings.hotkey,
             },
         }
 
-        settings["layouts"] = layouts or self.default_layouts
-        settings["overrides"] = overrides or self.layout_overrides
-        settings["ignored_windows"] = ignored_windows or []
+        settings["layouts"] = app_settings.layouts
+        settings["overrides"] = app_settings.overrides
+        settings["ignored_windows"] = app_settings.ignored_windows
 
         with Path.open(self.settings_file, "w") as f:
             json.dump(settings, f, indent=4)
