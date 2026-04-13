@@ -1,4 +1,3 @@
-# src/gui/config_dialog.py
 """Dialog for creating and configuring window layouts."""
 
 from __future__ import annotations
@@ -9,6 +8,7 @@ from fractions import Fraction
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -26,10 +26,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from backend import ConfigManager, WindowInfo, clean_window_title, to_bool, validate_int_pair
+from backend.config import ApplicationSettings
+from backend.constants import Fonts, UIConstants
 from gui.layout_preview import ScreenLayoutWidget
-from uwp_config import ConfigManager
-from uwp_constants import Colors, UIConstants
-from uwp_utils import WindowInfo, clean_window_title, to_bool, validate_int_pair
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+text_large = QFont(Fonts.TEXT_LARGE[0], Fonts.TEXT_LARGE[1], QFont.Weight.Bold)
 
 @dataclass
 class WindowSettings:
@@ -88,7 +89,7 @@ class ConfigDialog(QDialog):
         self.row_to_title = None
         self.settings_rows = None
         self.rows_layout = None
-        self.sorted_window = None
+        self.sorted_windows = None
         self.setWindowTitle("Create Config")
 
         self.colors = parent.colors
@@ -96,6 +97,7 @@ class ConfigDialog(QDialog):
         self.cfg_man = ConfigManager(parent.base_path)
         self.win_man = parent.win_man
         self.config_name = config_name
+
         self.auto_align_offsets = None
 
         self.window_titles = window_titles
@@ -120,11 +122,17 @@ class ConfigDialog(QDialog):
 
         self.setMinimumWidth(250)
 
+        self.name_header = QLabel(self.config_name or "New Config")
+        self.name_header.setStyleSheet(
+            f"font-family: {Fonts.TEXT_HEADER[0]}; font-size: {Fonts.TEXT_HEADER[1]}pt; font-weight: bold;",
+            )
+
         if self.edit_mode:
             QTimer.singleShot(0, lambda: self.show_config_settings(self.window_titles))
             return
 
         QTimer.singleShot(0, self._open_selection_menu)
+
 
     def _get_apply_order(self) -> list[str]:
         """Retrieve and validate the current apply order from config."""
@@ -144,7 +152,7 @@ class ConfigDialog(QDialog):
         valid_set = set(valid_labels)
         apply_order = [label for label in apply_order if label in valid_set]
 
-        # Add missing labels to the end
+        # Add missing labels
         for label in valid_labels:
             if label not in apply_order:
                 apply_order.append(label)
@@ -168,11 +176,26 @@ class ConfigDialog(QDialog):
 
         self.selection_area.hide()
 
-        sorted_windows = sorted(selected, key=lambda title: int(
-            (self.settings_callback(title) or {}).get("position", "0,0").split(",")[0]),
-        )
+        self.sorted_windows = self._sort_windows_by_position(selected)
 
-        self.show_config_settings(sorted_windows)
+        self.show_config_settings()
+
+
+    def _sort_windows_by_position(self, windows: list[str]) -> list[str]:
+        """Sort windows by their X position from settings."""
+        def get_x_pos(title: str) -> int:
+            if self.settings_rows is None:
+                pos_str = (self.settings_callback(title) or {}).get("position", "0,0")
+            else:
+                pos_str = self.settings_rows[title].get_values()["position"]
+            x_str = pos_str.split(",")[0]
+            try:
+                return int(x_str)
+            except ValueError:
+                return 0
+
+        return sorted(windows, key=get_x_pos)
+
 
 
     def _create_apply_order_list(self, order: list[str] | None = None) -> QWidget:
@@ -195,12 +218,12 @@ class ConfigDialog(QDialog):
 
         listw.setStyleSheet(f"""
         QListWidget::item {{
-            background: {Colors.BUTTON_NORMAL};
+            background: {self.colors.BUTTON_NORMAL};
             border-radius: 6px;
-            border: 2px solid {Colors.BORDER_COLOR};
+            border: 2px solid {self.colors.BORDER_COLOR};
         }}
         QListWidget::item:selected {{
-            background: {Colors.BUTTON_HOVER};
+            background: {self.colors.BUTTON_HOVER};
         }}
         QListWidget::item:focus {{
             outline: none;
@@ -219,7 +242,7 @@ class ConfigDialog(QDialog):
 
         container.setStyleSheet(f"""
         QWidget#apply_order_container {{
-            border: 0px solid {Colors.BORDER_COLOR};
+            border: 0px solid {self.colors.BORDER_COLOR};
             border-radius: 6px;
         }}
         """)
@@ -275,10 +298,14 @@ class ConfigDialog(QDialog):
         else:
             self.screen_height = self.screen_height_org
 
-    def show_config_settings(self, sorted_window: list[str]) -> None:  # noqa: PLR0915
+    def show_config_settings(self, windows: list[str] | None = None) -> None:  # noqa: PLR0915
         """Display settings rows, controls, and layout preview for selected windows."""
-        self.sorted_window = sorted_window
+        if windows:
+            self.sorted_windows = windows
+
         settings_layout = QVBoxLayout(self.settings_area)
+        self.settings_area.layout().addWidget(self.name_header)
+
         apply_order = self._create_apply_order_list(self.apply_order)
         settings_layout.addWidget(apply_order)
 
@@ -291,7 +318,7 @@ class ConfigDialog(QDialog):
         self.settings_rows = {}
         self.row_to_title = {}
 
-        for title in self.sorted_window:
+        for title in self.sorted_windows:
             values = self.settings_callback(title) or {}
             row = WindowSettingsRow(title, values)
             self.add_move_buttons(row)
@@ -312,10 +339,10 @@ class ConfigDialog(QDialog):
         controls = QHBoxLayout()
         controls.setContentsMargins(10, 0, 10, 0)
         auto_btn = QPushButton("Auto align")
-        auto_btn.setFixedSize(100, 30)
+        auto_btn.setFixedSize(150, 35)
 
         update_btn = QPushButton("Update drawing")
-        update_btn.setFixedSize(120, 30)
+        update_btn.setFixedSize(150, 35)
 
         self.ratio_label = QLabel("")
 
@@ -325,7 +352,7 @@ class ConfigDialog(QDialog):
 
         settings_layout.addLayout(controls, stretch=0)
 
-        auto_btn.clicked.connect(lambda: self.auto_position(self.sorted_window))
+        auto_btn.clicked.connect(lambda: self.auto_position(self.sorted_windows))
         update_btn.clicked.connect(self.update_layout_frame)
 
         # Layout preview
@@ -350,11 +377,12 @@ class ConfigDialog(QDialog):
         save_layout = QHBoxLayout(self.save_area)
         save_layout.addWidget(QLabel("Config Name:"))
 
-        self.config_name_edit = QLineEdit(self.config_name)
+        self.config_name_edit = QLineEdit(text=self.config_name if self.edit_mode else "")
+        self.config_name_edit.textChanged.connect(self._change_header)
         save_layout.addWidget(self.config_name_edit)
 
         save_btn = QPushButton("Save Config")
-        save_btn.setFixedSize(100, 30)
+        save_btn.setFixedSize(150, 35)
         save_layout.addWidget(save_btn)
 
         save_btn.clicked.connect(self.on_save)
@@ -374,6 +402,50 @@ class ConfigDialog(QDialog):
             )
 
         self.update_layout_frame()
+        self._update_config_name()
+
+
+    def _change_header(self) -> None:
+        """Update the header text based on current config name."""
+        self.name_header.setText(self.config_name_edit.text().strip() or "New Config")
+
+
+    def _update_config_name(self, index: int | None = None) -> None:
+        """Update the config name based on header text."""
+        if self.edit_mode:
+            return
+
+        current_name = self.config_name_edit.text().strip()
+        new_name = None
+
+        if not current_name:
+            return
+
+        if index:
+            new_name = self.sorted_windows[index]
+        elif self.settings_rows and len(self.settings_rows) < self.max_windows:
+            for r in self.settings_rows:
+                if to_bool(val=self.settings_rows[r].get_values()["always_on_top"]) and r:
+                    new_name = f'{r}_{"_".join(current_name.split("_")[1:])}'
+        else:
+            default_idx = 1 if len(self.sorted_windows) == 3 else 0  # noqa: PLR2004
+            new_name = self.sorted_windows[default_idx]
+
+        if new_name:
+            self.config_name_edit.setText(new_name)
+
+
+    def _get_preview_settings(self) -> ApplicationSettings:
+        return ApplicationSettings(
+            compact = False,
+            use_images = False,
+            snap = 0,
+            details = True,
+            hotkey = self.app_settings.hotkey,
+            layouts = self.app_settings.layouts,
+            overrides = self.app_settings.overrides,
+            ignored_windows = self.app_settings.ignored_windows,
+        )
 
     def add_move_buttons(self, row: WindowSettingsRow) -> None:
         """Add Up/Down buttons to a settings row."""
@@ -395,17 +467,49 @@ class ConfigDialog(QDialog):
     def move_row(self, row: WindowSettingsRow, direction: int) -> None:
         """Move the row up (-1) or down (+1) in the layout."""
         index = self.rows_layout.indexOf(row)
+        num_rows = self.rows_layout.count()
         new_index = index + direction
-        if 0 <= new_index < self.rows_layout.count():
-            self.rows_layout.removeWidget(row)
-            self.rows_layout.insertWidget(new_index, row)
+        if new_index > num_rows - 1:
+            new_index = 0
+        elif new_index < 0:
+            new_index = len(self.settings_rows) - 1
 
-            title = self.row_to_title[row]
-            current_index = self.sorted_window.index(title)
-            self.sorted_window.pop(current_index)
-            self.sorted_window.insert(new_index, title)
+        other_row = self.rows_layout.itemAt(new_index).widget()
+        current_values = row.get_values()
+        other_values = other_row.get_values()
 
-            self.update_layout_frame()
+        row.set_values(
+            name=other_values["name"],
+            pos=current_values["position"],
+            size=current_values["size"],
+            aot=current_values["always_on_top"],
+            titlebar=current_values["titlebar"],
+            process_priority=current_values["process_priority"],
+            exe=other_values["exe"],
+        )
+
+        other_row.set_values(
+            name=current_values["name"],
+            pos=other_values["position"],
+            size=other_values["size"],
+            aot=other_values["always_on_top"],
+            titlebar=other_values["titlebar"],
+            process_priority=other_values["process_priority"],
+            exe=current_values["exe"],
+        )
+
+        new_rows = {}
+        for r in self.settings_rows:
+            values = self.settings_rows[r].get_values()
+            new_rows[values["name"]] = self.settings_rows[r]
+
+        self.settings_rows = new_rows
+        self.sorted_windows = list(self.settings_rows.keys())
+        self.sorted_windows = self._sort_windows_by_position(self.sorted_windows)
+
+        self.update_layout_frame()
+        self._update_config_name()
+
 
     def gather_windows(self) -> list[WindowInfo]:
         """Get windows for the layout preview."""
@@ -417,7 +521,6 @@ class ConfigDialog(QDialog):
             windows.append(WindowInfo(vals["name"],
                                       pos_x, pos_y, size_w, size_h,
                                       always_on_top=vals["always_on_top"], exists=True,
-                                      search_title="",
                                       ))
         return windows
 
@@ -433,6 +536,7 @@ class ConfigDialog(QDialog):
             windows, self.assets_dir, self.app_settings,
         )
         self.layout_container_layout.addWidget(self.layout_preview)
+
 
     def update_row(self,
                    title: str,
@@ -463,7 +567,7 @@ class ConfigDialog(QDialog):
         positions = []
         for (rel_x, rel_y), (rel_w, rel_h) in layout:
             raw_x = int(rel_x * screen_width)
-            raw_y = int(rel_y * usable_height)
+            raw_y = int(rel_y * usable_height) + self.y_offset
             raw_w = int(rel_w * screen_width)
             raw_h = int(rel_h * usable_height)
             positions.append((raw_x, raw_y, raw_w, raw_h))
@@ -541,7 +645,7 @@ class ConfigDialog(QDialog):
         elif side == "C":
             raw_x = (screen_width / 2) - (window_width / 2)
 
-        return [(int(raw_x), 0, int(window_width), int(screen_height))]
+        return [(int(raw_x), self.y_offset, int(window_width), int(screen_height))]
 
 
     def _get_layout_info(self, num_windows: int, layout_configs: list) -> dict:
@@ -550,7 +654,7 @@ class ConfigDialog(QDialog):
         if num_windows == 4:  # noqa: PLR2004
             return {
                 "name_func": lambda: "_".join(
-                    self.settings_rows[title].get_values()["name"] for title in self.sorted_window
+                    self.settings_rows[title].get_values()["name"] for title in self.sorted_windows
                 ),
                 "label": f"{self.preset_label_text} ",
                 "aot_flags": [False] * 4,
@@ -562,7 +666,7 @@ class ConfigDialog(QDialog):
             weight_2 = 1 - weight_1
             return {
                 "name_func": lambda: clean_window_title(
-                    self.settings_rows[self.sorted_window[1]].get_values()["name"], titlecase=True,
+                    self.settings_rows[self.sorted_windows[1]].get_values()["name"], titlecase=True,
                     )[0],
                     "label": (
                         f"{self.preset_label_text} Aspect: {numerator}/{denominator} "
@@ -581,7 +685,7 @@ class ConfigDialog(QDialog):
             side_text, aot_idx = config.get(side, ("", 0))
             return {
                 "name_func": lambda: clean_window_title(
-                    self.settings_rows[self.sorted_window[aot_idx]].get_values()["name"], titlecase=True,
+                    self.settings_rows[self.sorted_windows[aot_idx]].get_values()["name"], titlecase=True,
                     )[0],
                     "label": f"{self.preset_label_text}{side_text:10} {numerator}/{denominator}",
                     "aot_flags": [aot_idx == 0, aot_idx == 1],
@@ -593,7 +697,7 @@ class ConfigDialog(QDialog):
         side_text = side_map.get(side, "Fullscreen")
         return {
             "name_func": lambda: clean_window_title(
-                self.settings_rows[self.sorted_window[0]].get_values()["name"], titlecase=True,
+                self.settings_rows[self.sorted_windows[0]].get_values()["name"], titlecase=True,
             )[0],
             "label": f"{self.preset_label_text}{side_text:10} {numerator}/{denominator}",
             "aot_flags": [True],
@@ -642,16 +746,16 @@ class ConfigDialog(QDialog):
         num_windows = len(sorted_windows)
         if str(num_windows) not in def_layouts:
             in_defaults = (
-                "" if num_windows not in self.cfg_man.default_layouts else " Try to reset to defaults."
+                "" if num_windows not in self.cfg_man.default_layouts else " Using default settings."
             )
-            self.ratio_label.setText(f"No auto-alignment available for {num_windows} windows. {in_defaults}")
-            return
+            self.ratio_label.setText(f"No auto-align available for {num_windows} windows in settings. {in_defaults}")
+            layout_configs = self.cfg_man.default_layouts[num_windows]
+        else:
+            layout_configs = def_layouts[str(num_windows)]
 
-        layout_configs = def_layouts[str(num_windows)]
         layout_max = len(layout_configs) - 1
         self.preset_label_text = f"Preset {self.layout_number + 1}/{layout_max + 1}\t"
 
-        # Route to appropriate position calculator
         pos_calculators = {
             1: self._calc_one,
             2: self._calc_two,
@@ -728,11 +832,9 @@ class WindowSettingsRow(QWidget):
         name = values.get("name", title)
         self.exe = values.get("exe", "")
 
-        # Larger name input
         self.name_edit = QLineEdit(name)
         self.name_edit.setMinimumWidth(150)
 
-        # Smaller pos/size inputs
         self.pos_edit = QLineEdit(pos)
         self.pos_edit.setFixedWidth(80)
         self.size_edit = QLineEdit(size)
@@ -774,6 +876,7 @@ class WindowSettingsRow(QWidget):
                    aot: bool,
                    titlebar: bool,
                    process_priority: bool = False,
+                   exe: str | None = None,
                    ) -> None:
         """Update the settings row values."""
         self.name_edit.setText(name)
@@ -782,9 +885,10 @@ class WindowSettingsRow(QWidget):
         self.aot_cb.setChecked(aot)
         self.titlebar_cb.setChecked(titlebar)
         self.process_priority_cb.setChecked(process_priority)
+        if exe is not None:
+            self.exe = exe
 
 
-# Helper function
 def resolve_titlebar(*, override: str, default: bool) -> bool:
     """Determine titlebar setting based on override value."""
     if override == "on":

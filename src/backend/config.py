@@ -10,10 +10,9 @@ from configparser import ConfigParser
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from uwp_constants import AOT_HOTKEY, IGNORED_WINDOWS, LayoutDefaults
-
 # Local imports
-from uwp_utils import clean_window_title, format_coords, match_titles, parse_coords
+from backend.common import clean_window_title, format_coords, match_titles, parse_coords
+from backend.constants import AOT_HOTKEY, IGNORED_WINDOWS, LayoutDefaults
 
 DEFAULT_LAYOUTS = {
     1: LayoutDefaults.ONE_WINDOW,
@@ -40,6 +39,9 @@ class ApplicationSettings:
 
 def get_ignore_list(config: ConfigParser) -> list[str]:
     """Get the ignore list from the config."""
+    if not config:
+        return []
+
     for title in config.sections():
         if config[title].get("ignore_list"):
             return config[title].get("ignore_list").split(",")
@@ -54,7 +56,6 @@ def safe_eval_layout_value(value: str) -> dict | list | tuple | None:
     if not value:
         return None
 
-    # permit JSON-style or Python tuple/list syntax
     try:
         return json.loads(value)
     except ValueError:
@@ -116,6 +117,7 @@ class ConfigManager:
         self.config_dir = Path(self.base_path, "configs")
         self.settings_dir = Path(self.base_path, "settings")
         self.settings_file = Path(self.settings_dir, "settings.json")
+        self.default_layouts = DEFAULT_LAYOUTS
 
         # Create directories if they don't exist
         if not Path.exists(self.config_dir):
@@ -125,7 +127,6 @@ class ConfigManager:
 
     def load_or_create_layouts(self)->tuple[dict,dict]:
         """Load layouts and overrides from settings.json."""
-        # This method now delegates to load_settings for layouts and overrides
         settings = self.load_settings()
         return settings.layouts, settings.overrides
 
@@ -185,24 +186,19 @@ class ConfigManager:
 
     def save_settings(self, app_settings: ApplicationSettings)->bool:
         """Save application settings, optionally including layouts and overrides."""
-        settings = {
-            "ui": {
-                "compact": app_settings.compact,
-                "use_images": app_settings.use_images,
-                "snap": app_settings.snap,
-                "details": app_settings.details,
-                "hotkey": app_settings.hotkey,
-            },
-        }
-
-        settings["layouts"] = app_settings.layouts
-        settings["overrides"] = app_settings.overrides
-        settings["ignored_windows"] = app_settings.ignored_windows
+        settings = {"ui": {
+            "compact": app_settings.compact,
+            "use_images": app_settings.use_images,
+            "snap": app_settings.snap,
+            "details": app_settings.details,
+            "hotkey": app_settings.hotkey,
+        }, "layouts": app_settings.layouts, "overrides": app_settings.overrides,
+            "ignored_windows": app_settings.ignored_windows}
 
         with Path.open(self.settings_file, "w") as f:
             json.dump(settings, f, indent=4)
 
-        # Reformatting the JSON to be more human readable
+        # Reformatting the JSON to be more human-readable
         with Path.open(self.settings_file, "r") as f:
             content = f.read()
 
@@ -328,5 +324,4 @@ class ConfigManager:
                 logger.info("Failed to delete config: %s", e)
                 return False
             return True
-        return False
-
+        return True

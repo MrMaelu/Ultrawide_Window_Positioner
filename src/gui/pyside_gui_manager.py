@@ -1,4 +1,3 @@
-# src/gui/pyside_gui_manager.py
 """PySide GUI manager for the Ultrawide Window Positioner application."""
 
 from __future__ import annotations
@@ -7,11 +6,8 @@ import logging
 import sys
 import time
 from configparser import ConfigParser
-from dataclasses import asdict
-from typing import TYPE_CHECKING
+from pathlib import Path
 
-import global_hotkeys
-import hdrcapture
 from PySide6.QtCore import QObject, QRect, QSize, Qt, QThreadPool, QTimer
 from PySide6.QtGui import QFont, QIcon, QImage, QWheelEvent
 from PySide6.QtWidgets import (
@@ -31,34 +27,43 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from gui.config_dialog import ConfigDialog
-from gui.layout_preview import ScreenLayoutWidget
-from gui.workers import GenericWorker
-from uwp_config import ConfigManager, get_ignore_list
-
-# Local imports
-from uwp_constants import Colors, Fonts, Messages, UIConstants
-from uwp_utils import (
-    WindowInfo,
-    clean_window_title,
-    config_to_metrics,
-    format_coords,
-    get_data_path,
-    get_version,
-    get_window_info,
-    invert_hex_color,
-    parse_coords,
+from backend import (
+    bring_to_front,
+    get_aot_toggle,
+    get_app_window_title,
+    get_screenshot,
     run_clean_subprocess,
 )
-from uwp_window import WindowManager
+from backend.common import (
+    get_data_path,
+    invert_hex_color,
+)
+from backend.config import (
+    ConfigManager,
+    clean_window_title,
+    format_coords,
+    get_ignore_list,
+    parse_coords,
+)
+
+# Local imports
+from backend.constants import Colors, Fonts, Messages, UIConstants
+from backend.window import (
+    WindowInfo,
+    WindowManager,
+    get_window_info,
+)
+from gui.config_dialog import ConfigDialog
+from gui.layout_preview import ScreenLayoutWidget
+from gui.workers import ApplyWorker, GenericWorker, ReapplyWorker, ScreenshotWorker
 
 logger = logging.getLogger(__name__)
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
 text_normal = QFont(Fonts.TEXT_NORMAL[0], Fonts.TEXT_NORMAL[1], QFont.Weight.Normal)
-text_small = QFont(Fonts.TEXT_SMALL[0], Fonts.TEXT_SMALL[1], QFont.Weight.Normal)
+text_small = text_normal
+#text_small = QFont(Fonts.TEXT_SMALL[0], Fonts.TEXT_SMALL[1], QFont.Weight.Normal)
+text_button = QFont(Fonts.BUTTON[0], Fonts.BUTTON[1], QFont.Weight.Bold)
+
 
 class PysideGuiManager(QMainWindow):
     """PySide-based GUI manager for the Ultrawide Window Positioner application."""
@@ -73,9 +78,6 @@ class PysideGuiManager(QMainWindow):
         self.screenshot_in_progress = None
         self.pending_delete = None
         self.scr_reapply = None
-        self.del_msg = QMessageBox(self)
-        self.del_msg.setWindowTitle("Confirm delete")
-        self.del_msg.finished.connect(self._handle_delete_result)
 
         self.thread_pool = QThreadPool.globalInstance()
         self.reapply_in_progress = None
@@ -88,10 +90,12 @@ class PysideGuiManager(QMainWindow):
         self.apply_thread_running = False
 
         self.config = None
+        self.last_combo_config = None
         self.config_files = None
         self.config_active = False
         self.applied_config = None
         self.applied_config_name = None
+        self.last_applied_config = None
 
         self.style_dark = True
 
@@ -118,25 +122,18 @@ class PysideGuiManager(QMainWindow):
         self.reapply_timer()
         self.managed_widget.installEventFilter(self)
 
-        global_hotkeys.register_hotkey(self.settings.hotkey, self.toggle_always_on_top, None)
-        global_hotkeys.start_checking_hotkeys()
+        get_aot_toggle(self.settings.hotkey, self.toggle_always_on_top)
 
-        # Set window title with version
-        version = get_version()
-        if version:
-            self.setWindowTitle(f"Ultrawide Window Positioner v{version}")
-        else:
-            self.setWindowTitle("Ultrawide Window Positioner")
-
+        window_title = get_app_window_title()
+        self.setWindowTitle(window_title)
         self.setWindowIcon(QIcon(str(get_data_path("Icon.png"))))
 
-    # ---------------- Helper methods ----------------
+    # Setup methods
     def _init_managers(self) -> None:
         """Initialize manager objects and related shortcuts."""
         self.cfg_man = ConfigManager(self.base_path)
         self.win_man = WindowManager()
-        if not self.win_man.validate_state():
-            logger.warning("Initial window manager state is invalid.")
+        self.win_man.validate_state()
 
         self.assets_dir: Path = self.base_path / "assets"
 
@@ -257,11 +254,11 @@ class PysideGuiManager(QMainWindow):
                 widget.show()
 
         if compact:
-            self.b1.setDirection(QBoxLayout.Direction.TopToBottom)  # vertical
-            self.b2.setDirection(QBoxLayout.Direction.TopToBottom)  # vertical
+            self.b1.setDirection(QBoxLayout.Direction.TopToBottom)
+            self.b2.setDirection(QBoxLayout.Direction.TopToBottom)
         else:
-            self.b1.setDirection(QBoxLayout.Direction.LeftToRight)  # horizontal
-            self.b2.setDirection(QBoxLayout.Direction.LeftToRight)  # horizontal
+            self.b1.setDirection(QBoxLayout.Direction.LeftToRight)
+            self.b2.setDirection(QBoxLayout.Direction.LeftToRight)
 
     def update_managed_text(self, lines: list, aot_flags: list, missing: list) -> None:
         """Update the text for the managed windows view (for compact mode)."""
@@ -281,7 +278,7 @@ class PysideGuiManager(QMainWindow):
 
         self.managed_text.setReadOnly(True)
 
-    # ---------------- Build the GUI ----------------
+    # Build GUI
 
     def _build_ui(self) -> None:
         """Build the main PySide GUI layout."""
@@ -294,8 +291,6 @@ class PysideGuiManager(QMainWindow):
         self._build_status_row()
         self._build_buttons_area()
         self._build_images_and_snap_row()
-
-    # ---------------- Helper methods ----------------
 
     def _build_header(self) -> None:
         """Create the header layout with resolution label."""
@@ -422,14 +417,14 @@ class PysideGuiManager(QMainWindow):
         self.aot_label = QLabel(Messages.ALWAYS_ON_TOP_DISABLED, self)
 
         self.aot_button.setEnabled(False)
-        self.aot_button.setFixedHeight(30)
+        self.aot_button.setFixedHeight(35)
         self.aot_label.setContentsMargins(10, 0, 10, 0)
 
         self.spacer_1 = QPushButton("")
-        self.spacer_1.setFixedHeight(30)
+        self.spacer_1.setFixedHeight(35)
 
         self.spacer_2 = QPushButton("")
-        self.spacer_2.setFixedHeight(30)
+        self.spacer_2.setFixedHeight(35)
 
         aot_l.addWidget(self.aot_button)
         aot_l.addWidget(self.aot_label)
@@ -534,8 +529,8 @@ class PysideGuiManager(QMainWindow):
         # Radio buttons
         self.snap_group.buttonToggled.connect(self._on_snap_toggle)
 
-    # ------------- Theme & toggles -------------
 
+    # Theme & toggles
     def _apply_theme(self) -> None:
         font_size = text_small.pointSize() if self.settings.compact else text_normal.pointSize()
         self.setStyleSheet(f"""
@@ -544,7 +539,7 @@ class PysideGuiManager(QMainWindow):
                 color: {self.colors.TEXT_NORMAL};
                 padding: 0px;
                 border: 0px solid {self.colors.BORDER_COLOR};
-                font-size: {font_size}pt;
+                font: {font_size}pt {text_normal.family()};
                 }}
             QFrame {{
                 background: {self.colors.BACKGROUND};
@@ -569,6 +564,8 @@ class PysideGuiManager(QMainWindow):
                 border: 2px solid {self.colors.BORDER_COLOR};
                 padding: 5px;
                 height: 54px;
+                font: {text_button.pointSize()}pt {text_button.family()};
+                font-weight: {text_button.weight()};
             }}
             QPushButton:hover {{
                 background: {self.colors.BUTTON_HOVER};
@@ -632,9 +629,13 @@ class PysideGuiManager(QMainWindow):
         # Re-apply dynamic states after theme reset
         self.format_apply_button(selected_config_shortname=None)
 
-
     def format_apply_button(self, selected_config_shortname: str | None) -> None:
         """Set the state and color for apply and reset buttons."""
+        if selected_config_shortname and selected_config_shortname == self.last_applied_config:
+            return
+
+        self.last_applied_config = selected_config_shortname
+
         btn_color = self.colors.BUTTON_ACTIVE if self.config_active else self.colors.BUTTON_NORMAL
         hover_color = self.colors.BUTTON_ACTIVE_HOVER if self.config_active else self.colors.BUTTON_HOVER
         self.aot_button.setEnabled(bool(self.win_man.topmost_windows))
@@ -704,7 +705,7 @@ class PysideGuiManager(QMainWindow):
             self.set_combo_values(names, cfg)
             self.on_config_select()
         else:
-            self.set_combo_values(["No configs found"], "No configs found")
+            self.set_combo_values([Messages.NO_CONFIG_TEXT], Messages.NO_CONFIG_TEXT)
             self.on_config_select()
 
     def set_combo_values(self, values: list, current: str) -> None:
@@ -731,7 +732,7 @@ class PysideGuiManager(QMainWindow):
         if config:
             for section in config.sections():
                 is_aot = config.getboolean(section, "always_on_top", fallback=False)
-                title = f"* {section} * (AOT)" if is_aot else section
+                title = f"* {section} *" if is_aot else section
                 missing = section in missing_windows
                 if len(title) > UIConstants.WINDOW_TITLE_MAX_LENGTH:
                     title = title[:UIConstants.WINDOW_TITLE_MAX_LENGTH] + "..."
@@ -741,75 +742,49 @@ class PysideGuiManager(QMainWindow):
 
         self.update_managed_text(lines, aot_lines, missing_lines)
 
-    def verify_window_data(self, config: ConfigParser, matching_windows: list) -> list:
-        """Compare the metrics of the windows in the config with the actual windows and return a list of results."""
-        compare_results = []
-        for match in matching_windows:
-            results = {}
-            metrics = self.win_man.get_window_metrics(match["hwnd"])
-            if not metrics:
-                continue
-
-            section = match["short_name"]
-            settings_metrics = config_to_metrics(config, section)
-
-            win_met = {k: v for k, v in asdict(metrics).items() if k != "apply_order"}
-            cfg_met = {k: v for k, v in asdict(settings_metrics).items() if k != "apply_order"}
-
-            results["name"] = match["name"]
-            results["hwnd"] = match["hwnd"]
-            results["short_name"] = match["short_name"]
-            results["identical"] = win_met == cfg_met
-            compare_results.append(results)
-
-        return compare_results
-
-    @staticmethod
-    def capture_window(window: dict, assets_dir: Path) -> None:
+    def capture_window(self, window: dict) -> None:
         """Take a screenshot of the window using hdrcapture and Qt for processing."""
-        assets_dir.mkdir(parents=True, exist_ok=True)
-        window_name = window["short_name"]
+        self.assets_dir.mkdir(parents=True, exist_ok=True)
+        name = window["short_name"].replace(" ", "_").replace(":", "")
+        save_path = Path(self.assets_dir / f"{name}.png")
         max_size = QSize(1024, 1024)
 
-        with hdrcapture.capture.window(hwnd=window["hwnd"]) as cap:
-            frame = cap.capture()
-            img_data = frame.ndarray()
+        get_screenshot(window["win_id"], save_path)
 
-            img = QImage(
-                img_data.data,
-                frame.width,
-                frame.height,
-                QImage.Format.Format_ARGB32,
-            )
+        retries = 5
+        while not save_path.exists() and retries > 0:
+            time.sleep(0.1)
+            retries -= 1
 
-            if not img.isNull():
-                if img.width() > max_size.width() or img.height() > max_size.height():
-                    img = img.scaled(
-                        max_size,
-                        Qt.AspectRatioMode.KeepAspectRatio,
-                        Qt.TransformationMode.SmoothTransformation,
-                    )
+        if not save_path.exists():
+            msg = f"File {save_path} could not be saved."
+            raise FileNotFoundError(msg)
 
-                ratio = frame.width / frame.height
+        img = QImage(str(save_path))
+        if not img.isNull():
+            img.scaled(max_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
 
-                ratio_suffixes = [
-                    (3.0, "32-9"),
-                    (2.0, "21-9"),
-                    (1.5, "16-9"),
-                    (1.2, "4-3"),
-                    (0.85, "square"),
-                    (0.65, "3-4"),
-                    (0.5, "9-16"),
-                    (0.35, "9-21"),
-                ]
+            ratio = img.width() / img.height()
 
-                suffix = next((s for threshold, s in ratio_suffixes if ratio > threshold), "9-32")
+            ratio_suffixes = [
+                (3.0, "32-9"),
+                (2.0, "21-9"),
+                (1.5, "16-9"),
+                (1.2, "4-3"),
+                (0.85, "square"),
+                (0.65, "3-4"),
+                (0.5, "9-16"),
+                (0.35, "9-21"),
+                (0.28, "9-32"),
+            ]
 
-                save_path = assets_dir / f"{window_name.replace(' ', '_')}_{suffix}.png"
-                # noinspection PyTypeChecker
-                img.save(str(save_path), "PNG")
-            else:
-                logger.error("Failed to create QImage from mss buffer for %s", window_name)
+            suffix = next((s for threshold, s in ratio_suffixes if ratio > threshold), "9-32")
+
+            save_path = self.assets_dir / f"{name}_{suffix}.png"
+            # noinspection PyTypeChecker
+            img.save(str(save_path), "PNG")
+        else:
+            logger.error("Failed to create QImage from mss buffer for %s", name)
 
     # Button actions
     def create_config_ui(self) -> None:
@@ -832,32 +807,35 @@ class PysideGuiManager(QMainWindow):
     def delete_config(self) -> None:
         """Delete the currently selected config."""
         current_name = self.combo_box.currentText()
-
-        if not current_name or current_name == "No configs found":
+        if not current_name or current_name == Messages.NO_CONFIG_TEXT:
             return
 
-        self.del_msg.setText(f"Delete config: '{current_name}'?")
-        self.del_msg.setInformativeText("This can not be undone.")
-        self.del_msg.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
-        self.del_msg.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Confirm delete")
+        msg.setText(f"Delete config: '{current_name}'?")
+        msg.setInformativeText("This can not be undone.")
 
-        self.pending_delete = current_name
+        btn_yes = msg.addButton("Delete", QMessageBox.ButtonRole.AcceptRole)
+        btn_cancel = msg.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        btn_yes.setMinimumWidth(80)
+        btn_cancel.setMinimumWidth(80)
 
-        self.del_msg.show()
+        msg.exec()
 
-    def _handle_delete_result(self, result: int) -> None:
-        if result == QMessageBox.StandardButton.Ok and hasattr(self, "pending_delete"):
-            if self.cfg_man.delete_config(self.pending_delete):
+        if msg.clickedButton() == btn_yes:
+            if self.cfg_man.delete_config(current_name):
                 self.update_config_list()
-                del self.pending_delete
-            elif self.pending_delete:
+            else:
                 QMessageBox.critical(self, "Error", "Failed to delete config. See debug log for details.")
 
     def edit_config_dialog(self) -> None:
         """Edit the current config."""
         # Get current config windows and settings
+        if not self.config:
+            return
+
         config_name = self.combo_box.currentText()
-        if not config_name or config_name.lower() == "no configs found":
+        if not config_name or config_name == Messages.NO_CONFIG_TEXT:
             return
 
         def build_settings(title: str) -> dict:
@@ -900,25 +878,25 @@ class PysideGuiManager(QMainWindow):
 
         self.apply_thread_running = True
 
-        # We pass the logic function and its arguments to the worker
-        kwargs = {"reapply": reapply}
-        worker = GenericWorker(self._apply_settings_logic, **kwargs)
+        if not reapply:
+            cfg = self.combo_box.currentText()
+            shortname = self.toggle_active_config(cfg)
+            self.applied_config_name = shortname
 
-        # Connect the cleanup/UI update to run on the Main Thread when done
+        worker = ApplyWorker(win_man=self.win_man, config=self.applied_config)
         worker.signals.finished.connect(self._on_apply_finished)
 
         self.thread_pool.start(worker)
 
-    # Opening the folder containing the image files
+    # Open the folder containing the image files
     def open_image_folder(self) -> None:
         """Open the image folder in File Explorer."""
         self.assets_dir.mkdir(parents=True, exist_ok=True)
+        kwargs = {"check": True}
         if sys.platform == "win32":
-            kwargs = {"check": True}
-            run_clean_subprocess(["C:/windows/explorer", self.assets_dir], **kwargs)
+            run_clean_subprocess(["explorer", self.assets_dir], **kwargs)
         else:
-            kwargs = {"check": True}
-            run_clean_subprocess(["xdg-open", str(self.assets_dir)], check_output=False, **kwargs)
+            run_clean_subprocess(["xdg-open", str(self.assets_dir)], **kwargs)
 
     def toggle_compact(self, startup: int = 0) -> None:
         """Toggle between compact and full mode."""
@@ -928,12 +906,10 @@ class PysideGuiManager(QMainWindow):
 
         if self.settings.compact:
             self.toggle_compact_button.setText("Full mode")
-            self.aot_button.setText("AOT")
             self.detect_config_button.setText("Detect")
         else:
             self.toggle_compact_button.setText("Compact mode")
-            self.aot_button.setText(f"Toggle AOT ({self.settings.hotkey})")
-            self.detect_config_button.setText("Detect config")
+            self.detect_config_button.setText("Predict config")
 
         width, height, min_width, min_height = self.get_geometry_and_minsize()
         self.toggle_elements(compact=self.settings.compact, min_width=min_width)
@@ -941,7 +917,6 @@ class PysideGuiManager(QMainWindow):
         self._position_app_window()
         self.on_config_select()
         self._apply_theme()
-
 
     def _position_app_window(self) -> None:
         width, height, _, _ = self.get_geometry_and_minsize()
@@ -977,8 +952,9 @@ class PysideGuiManager(QMainWindow):
                 continue
 
             matching_windows, _ = self.get_matching_and_missing_windows(config)
-            if matching_windows:
-                filtered_files[name] = file
+            for window in matching_windows:
+                if window["aot"]:
+                    filtered_files[name] = file
 
         return filtered_files
 
@@ -987,6 +963,8 @@ class PysideGuiManager(QMainWindow):
         self.style_dark = not bool(state)
         self.invert_colors()
         self._apply_theme()
+        self.update_always_on_top_status()
+
 
     def _on_reapply_toggle(self) -> None:
         self.reapply_paused = False
@@ -1049,8 +1027,8 @@ class PysideGuiManager(QMainWindow):
         aot_windows = self.win_man.topmost_windows
         if aot_windows:
             count = 0
-            for hwnd in aot_windows:
-                info = get_window_info(hwnd)
+            for win_id in aot_windows:
+                info = get_window_info(win_id)
                 if info and info.aot:
                     count += 1
 
@@ -1066,30 +1044,6 @@ class PysideGuiManager(QMainWindow):
 
         return count
 
-    def _apply_settings_logic(self, *, reapply: bool) -> None:
-        self.win_man.remove_invalid_windows()
-
-        if not reapply:
-            cfg = self.combo_box.currentText()
-            shortname = self.toggle_active_config(cfg)
-            self.applied_config_name = shortname
-
-        if self.applied_config:
-            matching_windows, _ = self.get_matching_and_missing_windows(self.applied_config)
-
-            for window in matching_windows:
-                hwnd = window["hwnd"]
-                self.win_man.add_managed_window(hwnd)
-
-                settings = config_to_metrics(self.applied_config, window["short_name"])
-                if settings:
-                    self.win_man.apply_window_config(settings, hwnd)
-                else:
-                    logger.info("Failed to apply settings to %s", window)
-
-        if not self.win_man.validate_state():
-            logger.warning("Some windows failed to apply settings. See debug log for details.")
-
 
     def _on_apply_finished(self) -> None:
         self.update_always_on_top_status()
@@ -1100,7 +1054,11 @@ class PysideGuiManager(QMainWindow):
 
     def _update_missing_labels(self) -> None:
         if isinstance(self.config, ConfigParser):
-            matching_windows, missing_windows = self.get_matching_and_missing_windows(self.config)
+            if self.last_combo_config == self.config:
+                return
+            self.last_combo_config = self.config
+
+            _, missing_windows = self.get_matching_and_missing_windows(self.config)
             for win in self.layout_frame.windows:
                 name = win.name
 
@@ -1113,91 +1071,78 @@ class PysideGuiManager(QMainWindow):
 
     def auto_reapply(self) -> None:
         """Automatically re-apply settings if conditions are met."""
-        if self.reapply_in_progress or self.reapply_paused:
-            return
-
-        self.reapply_in_progress = True
         self.update_reapply_label()
+        self._update_missing_labels()
+        self.format_apply_button(selected_config_shortname=self.applied_config_name)
 
-        worker = GenericWorker(self._reapply_worker_logic)
-        worker.signals.finished.connect(self._on_reapply_finished)
-        self.thread_pool.start(worker)
-
-    def _reapply_worker_logic(self) -> None:
         if not self.check_reapply_conditions():
             return
 
-        matching, _ = self.get_matching_and_missing_windows(self.applied_config)
-        if matching:
-            win_match_config = self.verify_window_data(self.applied_config, matching)
-            for win in win_match_config:
-                if not win["identical"]:
-                    settings = config_to_metrics(self.applied_config, win["short_name"])
-                    if settings:
-                        self.win_man.apply_window_config(settings, win["hwnd"])
-                    else:
-                        logger.info("Failed to apply settings to %s", win)
+        self.reapply_in_progress = True
+
+        worker = ReapplyWorker(self.win_man, self.applied_config)
+        worker.signals.finished.connect(self._on_reapply_finished)
+        self.thread_pool.start(worker)
 
     def _on_reapply_finished(self) -> None:
-        self._update_missing_labels()
         self.reapply_in_progress = False
-        if not self.win_man.validate_state():
-            logger.warning("Some windows failed to apply settings during auto re-apply. See debug log for details.")
-            self.win_man.remove_invalid_windows()
-
+        self.update_always_on_top_status()
 
     def toggle_always_on_top(self) -> None:
         """Toggle the always on top status for all managed windows."""
+        if not self.config_active:
+            bring_to_front(self.winId(), is_self=True)
+            return
+
         self.reapply_paused = not self.reapply_paused
-        worker = GenericWorker(self.win_man.toggle_always_on_top, own_hwnd=self.winId())
+        worker = GenericWorker(self.win_man.toggle_always_on_top, own_win_id=self.winId())
         worker.signals.finished.connect(self._on_reapply_finished)
         worker.signals.finished.connect(self.update_always_on_top_status)
         self.thread_pool.start(worker)
 
     def take_screenshot(self) -> None:
         """Take screenshots for all windows matching the current config."""
-        if self.screenshot_in_progress:
+        if self.apply_thread_running:
+            return
+
+        self.scr_reapply = (self.applied_config == self.config)
+        if self.screenshot_in_progress or (self.applied_config and not self.scr_reapply):
             return
 
         self.screenshot_in_progress = True
         self.reapply_paused = True
 
-        self.scr_reapply = False
-        if self.applied_config == self.config:
-            self.scr_reapply = True
-        elif self.applied_config:
-            return
+        apply_worker = ApplyWorker(win_man=self.win_man, config=self.config)
+        apply_worker.signals.finished.connect(self._take_screenshot)
+        self.thread_pool.start(apply_worker)
 
-        self.apply_settings(reapply=self.scr_reapply)
-
-        worker = GenericWorker(self._take_screenshot_worker_logic)
-        worker.signals.finished.connect(self._on_screenshot_finished)
-        self.thread_pool.start(worker)
-
-    def _take_screenshot_worker_logic(self) -> None:
-        time.sleep(0.5)
-        existing, missing = self.get_matching_and_missing_windows(self.config)
-        if existing:
-            for window in existing:
-                self.capture_window(window, self.assets_dir)
-
-            self.win_man.bring_to_front(self.winId())
-            self.update_window_layout(self.config, missing)
+    def _take_screenshot(self) -> None:
+        screenshot_worker = ScreenshotWorker(
+            win_man=self.win_man,
+            config=self.config,
+            capture_window=self.capture_window,
+            )
+        screenshot_worker.signals.finished.connect(self._on_screenshot_finished)
+        self.thread_pool.start(screenshot_worker)
 
     def _on_screenshot_finished(self) -> None:
-        self.info_label.setText("Screenshot taken for all detected windows.")
         if not self.scr_reapply:
-            self.apply_settings()
+            self.win_man.reset_all_windows()
+        bring_to_front(self.winId(), is_self=True)
+
+        self.info_label.setText("Screenshot taken for all detected windows.")
+        _, missing = self.get_matching_and_missing_windows(self.config)
+        self.update_window_layout(self.config, missing)
+
         self.reapply_paused = False
-        QTimer.singleShot(500, self._reset_screenshot_in_progress)
+        QTimer.singleShot(1000, self._reset_screenshot_in_progress)
 
     def _reset_screenshot_in_progress(self) -> None:
         self.screenshot_in_progress = False
 
-
     def toggle_active_config(self, cfg_name: str) -> str | None:
         """Toggle the active config."""
-        if not cfg_name or cfg_name.lower() == "no configs found":
+        if not cfg_name or cfg_name == Messages.NO_CONFIG_TEXT:
             return None
 
         self.config_active = not self.config_active
@@ -1216,14 +1161,18 @@ class PysideGuiManager(QMainWindow):
         logger.info("Config cleared.")
         logger.info("Managed windows after reset: %s\n", self.win_man.managed_windows)
 
-        if not self.win_man.validate_state():
-            logger.warning("Some windows failed to reset. See debug log for details.")
-
+        self.win_man.validate_state()
         return None
 
     def check_reapply_conditions(self) -> bool:
         """Check if conditions are met for auto-reapply to run."""
-        return all([self.reapply, self.config_active, not self.apply_thread_running, not self.reapply_paused])
+        return all([
+            self.reapply,
+            not self.reapply_in_progress,
+            self.config_active,
+            not self.apply_thread_running,
+            not self.reapply_paused,
+            ])
 
     def get_matching_and_missing_windows(self, config: ConfigParser) -> tuple[list, list]:
         """Get the windows that match the config and the ones that are missing."""

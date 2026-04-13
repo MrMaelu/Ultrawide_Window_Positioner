@@ -1,4 +1,3 @@
-# src/gui/layout_preview.py
 """Layout preview widget for screen visualization."""
 
 from __future__ import annotations
@@ -10,13 +9,13 @@ from PySide6.QtCore import QRect, Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPixmap, QWheelEvent
 from PySide6.QtWidgets import QLabel, QWidget
 
-from uwp_constants import Colors
-from uwp_utils import WindowInfo, convert_hex_to_rgb
+from backend import WindowInfo, convert_hex_to_rgb
+from backend.constants import Colors
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from uwp_config import ApplicationSettings
+    from backend.config import ApplicationSettings
 
 logger = logging.getLogger(__name__)
 
@@ -51,13 +50,13 @@ class ScreenLayoutWidget(QWidget):
         self.screen_height = screen_height
 
         self.taskbar_height = 40
-        self.line_height = 16  # Approximate for text
+        self.line_height = 16
 
         self.status_labels = {}
 
     def _handle_status_label(self, win: WindowInfo, x: int, y: int, w: int, h: int) -> None:
         _y = y
-        name = win.search_title or win.name
+        name = win.name
 
         if name not in self.status_labels:
             label = QLabel("Missing", self)
@@ -97,7 +96,7 @@ class ScreenLayoutWidget(QWidget):
         """Draw the layout preview."""
         self.active_labels = set()
         for win in self.windows:
-            win_name = win.search_title or win.name
+            win_name = win.name
             self.active_labels.add(win_name)
 
         painter.fillRect(0, 0, width, height, QColor(self.colors.BACKGROUND))
@@ -161,7 +160,7 @@ class ScreenLayoutWidget(QWidget):
             if title not in self.active_labels:
                 label.hide()
 
-        # ---- Outer border drawn last ----
+        # Outer border drawn last
         r, g, b = convert_hex_to_rgb(Colors.WINDOW_FRAME)
         frame_color = QColor(r, g, b)
         pen = QPen(frame_color, frame_width)
@@ -199,7 +198,7 @@ class ScreenLayoutWidget(QWidget):
         painter.drawRect(int(x), int(y), int(w), int(h))
 
         # Draw images if enabled
-        if self.use_images:
+        if self.use_images and win.name:
             self.draw_images(draw_params)
 
         self._handle_status_label(win, x, y, w, h)
@@ -216,7 +215,7 @@ class ScreenLayoutWidget(QWidget):
         _w = draw_params["w"]
         h = draw_params["h"]
         aot_text = "Yes" if win.always_on_top else "No"
-        title = win.search_title or win.name
+        title = win.name
         if not title:
             return
 
@@ -245,7 +244,7 @@ class ScreenLayoutWidget(QWidget):
 
             # background box
             bg_rect = text_rect.adjusted(-3, -1, +3, +1)
-            painter.setBrush(QColor(0, 0, 0, 160))  # semi-transparent black
+            painter.setBrush(QColor(0, 0, 0, 160))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRect(bg_rect)
 
@@ -264,7 +263,7 @@ class ScreenLayoutWidget(QWidget):
         painter = draw_params["painter"]
         x, y, w, h = draw_params["x"], draw_params["y"], draw_params["w"], draw_params["h"]
         target_ratio = w / h
-        base_name = win.search_title.replace(" ", "_").replace(":", "")
+        base_name = win.name.replace(" ", "_").replace(":", "")
 
         ratios = {
             "32-9": 32/9,
@@ -281,7 +280,7 @@ class ScreenLayoutWidget(QWidget):
         best_path = None
         min_diff = float("inf")
 
-        for img_path in self.assets_dir.glob(f"{base_name}_*.png"):
+        for img_path in self.assets_dir.glob(f"{base_name}*.png"):
             suffix = img_path.stem.split("_")[-1]
             file_ratio = ratios.get(suffix, 1.0)
 
@@ -291,7 +290,6 @@ class ScreenLayoutWidget(QWidget):
                 best_path = img_path
 
         if best_path and best_path.exists():
-            # stretch
             pixmap = QPixmap(str(best_path)).scaled(
                 int(w), int(h),
                 Qt.AspectRatioMode.IgnoreAspectRatio,

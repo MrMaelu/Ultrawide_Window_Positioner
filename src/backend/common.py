@@ -1,18 +1,12 @@
 """Collection of utilities."""
 import logging
 import re
-import subprocess
 import sys
 from configparser import ConfigParser
 from dataclasses import dataclass
 from pathlib import Path
 
-import psutil
 import roman
-import win32api
-import win32con
-import win32gui
-import win32process
 
 logger = logging.getLogger(__name__)
 
@@ -43,14 +37,13 @@ class WindowInfo:
     height: int
     always_on_top: bool
     exists: bool
-    search_title: str
 
 
 @dataclass
 class WindowsWindow:
     """Hold information about application windows."""
 
-    hwnd: int
+    win_id: int | str
     pid: int
     title: str
     app_name: str
@@ -73,12 +66,10 @@ def metrics_to_window_info(name: str, metrics: WindowMetrics, *, exists: bool)->
         metrics.h,
         metrics.aot,
         exists,
-        name,
     )
 
 
-
-def window_to_metrics(window: WindowsWindow)->WindowMetrics | None:
+def window_to_metrics(window: WindowsWindow | None)->WindowMetrics | None:
     """Convert a WindowsWindow to WindowMetrics."""
     if not window:
         return None
@@ -93,52 +84,18 @@ def window_to_metrics(window: WindowsWindow)->WindowMetrics | None:
         "",
     )
 
-def get_window_info(hwnd: int) -> WindowsWindow | None:
-    """Get information about a window."""
-    title = win32gui.GetWindowText(hwnd)
-    if not title.strip():
-        return None
-
-    _, pid = win32process.GetWindowThreadProcessId(hwnd)
-    rect = win32gui.GetWindowRect(hwnd)
-    style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
-    # noinspection SpellCheckingInspection
-    exstyle = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
-
-    width = rect[2] - rect[0]
-    height = rect[3] - rect[1]
-    x = rect[0]
-    y = rect[1]
-    aot = exstyle & win32con.WS_EX_TOPMOST != 0
-    titlebar = style & win32con.WS_CAPTION != 0
-
-    try:
-        proc = psutil.Process(pid)
-        app_name = proc.name()
-        app_path = proc.exe()
-
-    except (psutil.NoSuchProcess, psutil.AccessDenied):
-        app_name = ""
-        app_path = ""
-
-    return WindowsWindow(
-        hwnd,
-        pid,
-        title[:60],
-        app_name,
-        app_path,
-        width,
-        height,
-        x,
-        y,
-        titlebar,
-        aot,
-    )
 
 def get_data_path(relative_path: str)->str:
     """Get the absolute path to a data file."""
     absolute_path = Path(base_path) / "data" / relative_path
     return absolute_path.as_posix()
+
+
+def get_binary_path(relative_path: str) -> str:
+    """Get the absolute path to a binary file."""
+    absolute_path = Path(base_path) / "bin" / relative_path
+    return absolute_path.as_posix()
+
 
 def clean_window_title(title:str, exe:str="", *, titlecase:bool=True)->list:
     """Remove special characters from title."""
@@ -157,32 +114,19 @@ def clean_window_title(title:str, exe:str="", *, titlecase:bool=True)->list:
     return  [title, title]
 
 
-def run_clean_subprocess(command: list[str], *,
-                         check_output: bool =False,
-                         **kwargs: dict,
-                         ) -> subprocess.CompletedProcess | bytes:
-    """Run a subprocess."""
-    if not check_output:
-        kwargs = {
-            "stdout": subprocess.DEVNULL,
-            "stderr": subprocess.DEVNULL,
-        }
-
-    if check_output:
-        return subprocess.check_output(command, **kwargs)  # noqa: S603
-    return subprocess.run(command, check=False, **kwargs)  # noqa: S603
+def convert_rgb_to_hex(r:int, g:int, b:int)->str:
+    """Convert rgb int to hex string."""
+    return f"#{r:02X}{g:02X}{b:02X}"
 
 
 def invert_hex_color(hex_color:str)->str:
     """Calculate the inverse of the given color."""
     r, g, b = convert_hex_to_rgb(hex_color)
-    # Invert each component
     r_inv = 255 - r
     g_inv = 255 - g
     b_inv = 255 - b
 
-    # Format back to hex
-    return f"#{r_inv:02X}{g_inv:02X}{b_inv:02X}"
+    return convert_rgb_to_hex(r_inv, g_inv, b_inv)
 
 
 def convert_hex_to_rgb(hex_color:str)->tuple[int, int, int]:
@@ -237,14 +181,12 @@ def match_titles(sections: list, titles: list, *, get_titles: bool = False) -> b
             pattern = r"^" + re.escape(section) + r"(\b|$)"
             if bool(re.match(pattern, title)):
                 if get_titles:
-                    title_matches[section] = title
+                    if section not in title_matches:  # Avoid overwriting an exact match
+                        title_matches[section] = title
                 else:
                     return True
 
-    if get_titles:
-        return title_matches
-
-    return False
+    return title_matches if get_titles else False
 
 
 def to_bool(*, val: str | bool) -> bool:
@@ -290,30 +232,4 @@ def config_to_metrics(config: ConfigParser, section: str) -> WindowMetrics:
                          config.get(section, "apply_order", fallback=""),
                          )
 
-
-def get_version() -> str | None:
-    """Read the application version from version.txt file."""
-    try:
-        # noinspection SpellCheckingInspection
-        if hasattr(__import__("sys"), "_MEIPASS"):
-            # Pyinstaller fix
-            exe = Path(sys.executable)
-            info = win32api.GetFileVersionInfo(str(exe), "\\")
-            ms = info["FileVersionMS"]
-            ls = info["FileVersionLS"]
-            version = (win32api.HIWORD(ms), win32api.LOWORD(ms), win32api.HIWORD(ls), win32api.LOWORD(ls))
-            return f"{version[0]}.{version[1]}.{version[2]}.{version[3]}"
-
-        version_file = Path(__file__).resolve().parent.parent / "version.txt"
-        if version_file.exists():
-            with Path.open(version_file, "r", encoding="utf-8") as f:
-                content = f.read()
-                match = re.search(r"filevers=\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)", content)
-                if match:
-                    major, minor, patch, build = match.groups()
-                    return f"{major}.{minor}.{patch}.{build}"
-    except (OSError, AttributeError):
-        pass
-
-    return None
 

@@ -3,13 +3,14 @@
 AOT_HOTKEY = "alt+home"
 
 IGNORED_WINDOWS = [
-            "ultrawide window positioner",
-            "program manager",
-            "windows input experience",
-            "microsoft text input application",
-            "settings",
-            "windows shell experience host",
-            ]
+    "ultrawide window positioner",
+    "uwp_kde",
+    "program manager",
+    "windows input experience",
+    "microsoft text input application",
+    "settings",
+    "windows shell experience host",
+]
 
 
 class LayoutDefaults:
@@ -164,9 +165,9 @@ class UIConstants:
     """GUI constant values."""
 
     # Window dimensions
-    WINDOW_WIDTH = 800
+    WINDOW_WIDTH = 850
     WINDOW_HEIGHT = 600
-    WINDOW_MIN_WIDTH = 800
+    WINDOW_MIN_WIDTH = 850
     WINDOW_MIN_HEIGHT = 600
 
     COMPACT_WIDTH = 200
@@ -208,12 +209,23 @@ class Colors:
 class Messages:
     """GUI messages."""
 
-    # Status messages
     ALWAYS_ON_TOP_DISABLED = "AOT: None"
+    NO_CONFIG_TEXT = "No config files found."
 
 class Fonts:
     """GUI fonts."""
 
-    TEXT_NORMAL = ("Consolas", 10, "normal")
-    TEXT_SMALL = ("Consolas", 8, "normal")
+    _family = "Gill Sans MT"
 
+    TEXT_NORMAL = (_family, 10, "normal")
+    TEXT_NORMAL_BOLD = (_family, 10, "bold")
+
+    TEXT_SMALL = (_family, 8, "normal")
+    TEXT_SMALL_BOLD = (_family, 8, "bold")
+
+    TEXT_LARGE = (_family, 12, "bold")
+    TEXT_LARGE_BOLD = (_family, 12, "bold")
+
+    BUTTON = TEXT_LARGE_BOLD
+
+    TEXT_HEADER = (_family, 20, "bold")

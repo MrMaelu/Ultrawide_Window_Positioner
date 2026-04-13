@@ -8,8 +8,7 @@ build/
 dist/
 *.egg-info/
 .eggs/
-*.whl
-*.spec
+uv.lock
 
 # Virtual environments
 .venv/
