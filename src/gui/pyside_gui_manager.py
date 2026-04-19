@@ -142,12 +142,13 @@ class PysideGuiManager(QMainWindow):
     def _init_screen(self) -> None:
         """Initialize screen resolution variables."""
         screens = QApplication.screens()
+        scale = screens[0].devicePixelRatio()
         total_rect = QRect()
         for screen in screens:
             geo = screen.geometry()
             total_rect = total_rect.united(geo)
-        self.res_x = total_rect.width()
-        self.res_y = total_rect.height()
+        self.res_x = int(total_rect.width() * scale)
+        self.res_y = int(total_rect.height() * scale)
         self.y_offset = self.res_y // 2
 
     def _init_ui_containers(self) -> None:
