@@ -143,19 +143,21 @@ class PysideGuiManager(QMainWindow):
 
     def _init_screen(self) -> None:
         """Initialize screen resolution variables."""
+        self.res_scale = 1
+
         if self.res_override_used and self.valid_res_override:
             res = self.settings.screen_resolution_override.split(",")
             self.res_x = int(res[0])
             self.res_y = int(res[1])
         else:
             screens = QApplication.screens()
-            scale = screens[0].devicePixelRatio()
+            self.res_scale = screens[0].devicePixelRatio()
             total_rect = QRect()
             for screen in screens:
                 geo = screen.geometry()
                 total_rect = total_rect.united(geo)
-            self.res_x = int(total_rect.width() * scale)
-            self.res_y = int(total_rect.height() * scale)
+            self.res_x = int(total_rect.width() * self.res_scale)
+            self.res_y = int(total_rect.height() * self.res_scale)
 
         self.y_offset = self.res_y // 2
 
@@ -939,16 +941,16 @@ class PysideGuiManager(QMainWindow):
         snap_left = 1
         snap_right = 2
         if self.settings.snap == 0:
-            pos_x = (self.res_x // 2) - (width // 2)
+            pos_x = (self.res_x // 2) - (width // 2 * self.res_scale)
         elif self.settings.snap == snap_left:
             pos_x = 0
         elif self.settings.snap == snap_right:
-            pos_x = self.res_x - width
+            pos_x = self.res_x - (width * self.res_scale)
         else:
             pos_x = 100
-        pos_y = (self.res_y // 2) - (height // 2)
+        pos_y = (self.res_y // 2) - (height // 2 * self.res_scale)
 
-        self.setGeometry(pos_x, pos_y, width, height)
+        self.setGeometry(pos_x  / self.res_scale, pos_y, width, height)
 
     def detect_config(self) -> None:
         """Detect the best matching config based on available windows."""
