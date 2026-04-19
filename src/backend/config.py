@@ -12,7 +12,7 @@ from pathlib import Path
 
 # Local imports
 from backend.common import clean_window_title, format_coords, match_titles, parse_coords
-from backend.constants import AOT_HOTKEY, IGNORED_WINDOWS, LayoutDefaults
+from backend.constants import AOT_HOTKEY, IGNORED_WINDOWS, LayoutDefaults, UIConstants
 
 DEFAULT_LAYOUTS = {
     1: LayoutDefaults.ONE_WINDOW,
@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 class ApplicationSettings:
     """Application settings container."""
 
+    screen_resolution_override: str = ""
     compact: bool = False
     use_images: bool = False
     snap: int = 0
@@ -157,6 +158,7 @@ class ConfigManager:
                 try:
                     settings = json.load(f)
                     ui_settings = settings.get("ui", {})
+                    screen_resolution_override = ui_settings.get("screen_resolution_override", "")
                     compact = ui_settings.get("compact", False)
                     use_images = ui_settings.get("use_images", False)
                     snap = ui_settings.get("snap", 0)
@@ -171,6 +173,7 @@ class ConfigManager:
                     return ApplicationSettings()
 
                 return ApplicationSettings(
+                    screen_resolution_override,
                     compact,
                     use_images,
                     snap,
@@ -187,6 +190,7 @@ class ConfigManager:
     def save_settings(self, app_settings: ApplicationSettings)->bool:
         """Save application settings, optionally including layouts and overrides."""
         settings = {"ui": {
+            "screen_resolution_override": app_settings.screen_resolution_override,
             "compact": app_settings.compact,
             "use_images": app_settings.use_images,
             "snap": app_settings.snap,
@@ -325,3 +329,16 @@ class ConfigManager:
                 return False
             return True
         return True
+
+    def validate_screen_res_override(self, screen_resolution: str) -> bool:
+        """Validate the screen resolution override."""
+        min_w = UIConstants.WINDOW_MIN_WIDTH
+        min_h = UIConstants.WINDOW_MIN_HEIGHT
+        if not screen_resolution:
+            return False
+        split_res = screen_resolution.split(",")
+        if len(split_res) != 2:
+            return False
+        return all(res.strip().isdigit() for res in split_res) and (
+            int(split_res[0]) >= min_w and int(split_res[1]) >= min_h
+            )

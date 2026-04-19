@@ -110,6 +110,8 @@ class PysideGuiManager(QMainWindow):
         self._init_managers()
 
         self.settings = self.cfg_man.load_settings()
+        self.valid_res_override = self.cfg_man.validate_screen_res_override(self.settings.screen_resolution_override)
+        self.res_override_used = self.settings.screen_resolution_override != ""
 
         low_ignore_list = [item.lower() for item in self.settings.ignored_windows]
         self.win_man.ignored_windows = low_ignore_list
@@ -141,14 +143,20 @@ class PysideGuiManager(QMainWindow):
 
     def _init_screen(self) -> None:
         """Initialize screen resolution variables."""
-        screens = QApplication.screens()
-        scale = screens[0].devicePixelRatio()
-        total_rect = QRect()
-        for screen in screens:
-            geo = screen.geometry()
-            total_rect = total_rect.united(geo)
-        self.res_x = int(total_rect.width() * scale)
-        self.res_y = int(total_rect.height() * scale)
+        if self.res_override_used and self.valid_res_override:
+            res = self.settings.screen_resolution_override.split(",")
+            self.res_x = int(res[0])
+            self.res_y = int(res[1])
+        else:
+            screens = QApplication.screens()
+            scale = screens[0].devicePixelRatio()
+            total_rect = QRect()
+            for screen in screens:
+                geo = screen.geometry()
+                total_rect = total_rect.united(geo)
+            self.res_x = int(total_rect.width() * scale)
+            self.res_y = int(total_rect.height() * scale)
+
         self.y_offset = self.res_y // 2
 
     def _init_ui_containers(self) -> None:
@@ -299,7 +307,14 @@ class PysideGuiManager(QMainWindow):
         header_layout.setContentsMargins(15, 0, 15, 0)
         header_layout.setSpacing(10)
 
-        self.resolution_label = QLabel(f"{self.res_x} x {self.res_y}", self)
+        res_label_text = f"{self.res_x} x {self.res_y}"
+        if self.res_override_used:
+            if not self.valid_res_override:
+                res_label_text += f" (invalid override ignored: {self.settings.screen_resolution_override})"
+            else:
+                res_label_text += " (override)"
+
+        self.resolution_label = QLabel(f"{res_label_text}", self)
 
         header_layout.addWidget(self.resolution_label, alignment=Qt.AlignmentFlag.AlignLeft)
 
