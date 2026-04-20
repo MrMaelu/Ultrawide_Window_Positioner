@@ -30,6 +30,7 @@ class ScreenLayoutWidget(QWidget):
                  windows: list[WindowInfo],
                  assets_dir: Path,
                  app_settings: ApplicationSettings,
+                 scale: float = 1.0,
                  ) -> None:
         """Set up base variables."""
         super().__init__(parent)
@@ -40,6 +41,7 @@ class ScreenLayoutWidget(QWidget):
         self.parent = parent
         self.colors = self.parent.colors
         self.assets_dir = assets_dir
+        self.scale = scale
 
         self.windows = windows
 
@@ -101,7 +103,7 @@ class ScreenLayoutWidget(QWidget):
 
         painter.fillRect(0, 0, width, height, QColor(self.colors.BACKGROUND))
 
-        frame_width = 15
+        frame_width = 15 // self.scale
         padding = frame_width / 2
 
         drawable_height = height - frame_width * 2
@@ -166,7 +168,7 @@ class ScreenLayoutWidget(QWidget):
         pen = QPen(frame_color, frame_width)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        corner_radius = 10
+        corner_radius = 10 // self.scale
         painter.drawRoundedRect(frame_rect, corner_radius, corner_radius)
 
     def draw_window(self,

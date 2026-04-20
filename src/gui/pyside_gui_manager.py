@@ -6,6 +6,7 @@ import logging
 import sys
 import time
 from configparser import ConfigParser
+from math import ceil
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRect, QSize, Qt, QThreadPool, QTimer
@@ -61,7 +62,6 @@ logger = logging.getLogger(__name__)
 
 text_normal = QFont(Fonts.TEXT_NORMAL[0], Fonts.TEXT_NORMAL[1], QFont.Weight.Normal)
 text_small = text_normal
-#text_small = QFont(Fonts.TEXT_SMALL[0], Fonts.TEXT_SMALL[1], QFont.Weight.Normal)
 text_button = QFont(Fonts.BUTTON[0], Fonts.BUTTON[1], QFont.Weight.Bold)
 
 
@@ -105,6 +105,8 @@ class PysideGuiManager(QMainWindow):
 
         self.managed_label = None
         self.managed_text = None
+
+        self.ui_constants = UIConstants()
         self.colors = Colors()
 
         self._init_managers()
@@ -117,6 +119,7 @@ class PysideGuiManager(QMainWindow):
         self.win_man.ignored_windows = low_ignore_list
 
         self._init_screen()
+
         self._init_ui_containers()
         self._setup_ui()
 
@@ -147,8 +150,8 @@ class PysideGuiManager(QMainWindow):
 
         if self.res_override_used and self.valid_res_override:
             res = self.settings.screen_resolution_override.split(",")
-            self.res_x = int(res[0])
-            self.res_y = int(res[1])
+            self.res_x = ceil(res[0])
+            self.res_y = ceil(res[1])
         else:
             screens = QApplication.screens()
             self.res_scale = screens[0].devicePixelRatio()
@@ -156,10 +159,11 @@ class PysideGuiManager(QMainWindow):
             for screen in screens:
                 geo = screen.geometry()
                 total_rect = total_rect.united(geo)
-            self.res_x = int(total_rect.width() * self.res_scale)
-            self.res_y = int(total_rect.height() * self.res_scale)
+            self.res_x = ceil(total_rect.width() * self.res_scale)
+            self.res_y = ceil(total_rect.height() * self.res_scale)
 
         self.y_offset = self.res_y // 2
+
 
     def _init_ui_containers(self) -> None:
         """Initialize main UI containers and layout."""
@@ -204,15 +208,15 @@ class PysideGuiManager(QMainWindow):
         """Get the sizes needed to set geometry and minsize."""
         compact_height_factor = 1
         if self.settings.compact:
-            width = UIConstants.COMPACT_WIDTH
-            height = UIConstants.COMPACT_HEIGHT
-            min_width = UIConstants.COMPACT_WIDTH
-            min_height = UIConstants.COMPACT_HEIGHT * compact_height_factor
+            width = self.ui_constants.COMPACT_WIDTH
+            height = self.ui_constants.COMPACT_HEIGHT
+            min_width = self.ui_constants.COMPACT_WIDTH
+            min_height = self.ui_constants.COMPACT_HEIGHT * compact_height_factor
         else:
-            width = UIConstants.WINDOW_WIDTH
-            height = UIConstants.WINDOW_HEIGHT
-            min_width = UIConstants.WINDOW_MIN_WIDTH
-            min_height = UIConstants.WINDOW_MIN_HEIGHT
+            width = self.ui_constants.WINDOW_WIDTH
+            height = self.ui_constants.WINDOW_HEIGHT
+            min_width = self.ui_constants.WINDOW_MIN_WIDTH
+            min_height = self.ui_constants.WINDOW_MIN_HEIGHT
 
         return width, height, min_width, min_height
 
@@ -251,11 +255,11 @@ class PysideGuiManager(QMainWindow):
 
         if compact:
             for button in resized_buttons:
-                button.setFixedHeight(30)
+                button.setFixedHeight(self.ui_constants.COMPACT_BUTTON_HEIGHT)
             self.combo_box.setFixedWidth(min_width - 20)
         else:
             for button in resized_buttons:
-                button.setFixedHeight(50)
+                button.setFixedHeight(self.ui_constants.BUTTON_HEIGHT)
             self.combo_box.setFixedWidth(int(min_width / 2))
 
         for widget in hidden_elements:
@@ -376,6 +380,7 @@ class PysideGuiManager(QMainWindow):
             windows=[],
             assets_dir=self.assets_dir,
             app_settings=self.settings,
+            scale=self.res_scale,
         )
         lc_layout.addWidget(self.layout_frame, 1)
         self.main_layout.addLayout(lc_layout, 1)
@@ -551,6 +556,11 @@ class PysideGuiManager(QMainWindow):
     # Theme & toggles
     def _apply_theme(self) -> None:
         font_size = text_small.pointSize() if self.settings.compact else text_normal.pointSize()
+        button_font_size = text_button.pointSize()
+        if self.res_scale != 1:
+            font_size = int(font_size / self.res_scale / 0.75)
+            button_font_size = int(button_font_size / self.res_scale / 0.75)
+
         self.setStyleSheet(f"""
             QWidget {{
                 background: {self.colors.BACKGROUND};
@@ -581,8 +591,8 @@ class PysideGuiManager(QMainWindow):
                 border-radius: 10px;
                 border: 2px solid {self.colors.BORDER_COLOR};
                 padding: 5px;
-                height: 54px;
-                font: {text_button.pointSize()}pt {text_button.family()};
+                height: {self.ui_constants.BUTTON_HEIGHT}px;
+                font: {button_font_size}pt {text_button.family()};
                 font-weight: {text_button.weight()};
             }}
             QPushButton:hover {{
@@ -752,8 +762,8 @@ class PysideGuiManager(QMainWindow):
                 is_aot = config.getboolean(section, "always_on_top", fallback=False)
                 title = f"* {section} *" if is_aot else section
                 missing = section in missing_windows
-                if len(title) > UIConstants.WINDOW_TITLE_MAX_LENGTH:
-                    title = title[:UIConstants.WINDOW_TITLE_MAX_LENGTH] + "..."
+                if len(title) > self.ui_constants.WINDOW_TITLE_MAX_LENGTH:
+                    title = title[:self.ui_constants.WINDOW_TITLE_MAX_LENGTH] + "..."
                 lines.append(title)
                 aot_lines.append(is_aot)
                 missing_lines.append(missing)
@@ -819,6 +829,7 @@ class PysideGuiManager(QMainWindow):
             self.update_config_list,
             self.res_x, self.res_y, self.y_offset,
             assets_dir=self.assets_dir,
+            scale=self.res_scale,
         )
         dlg.exec()
 
@@ -886,6 +897,7 @@ class PysideGuiManager(QMainWindow):
             assets_dir=self.assets_dir,
             edit_mode=True,
             config_name=config_name,
+            scale=self.res_scale,
         )
         dlg.exec()
 

@@ -68,6 +68,7 @@ class ConfigDialog(QDialog):
         assets_dir: Path,
         max_windows: int = 4,
         config_name: str = "",
+        scale: float = 1.0,
         *,
         edit_mode: bool = False,
     ) -> None:
@@ -97,6 +98,7 @@ class ConfigDialog(QDialog):
         self.cfg_man = ConfigManager(parent.base_path)
         self.win_man = parent.win_man
         self.config_name = config_name
+        self.scale = scale
 
         self.auto_align_offsets = None
 
@@ -533,7 +535,7 @@ class ConfigDialog(QDialog):
 
         self.layout_preview = ScreenLayoutWidget(
             self, self.screen_width, self.screen_height_org,
-            windows, self.assets_dir, self.app_settings,
+            windows, self.assets_dir, self.app_settings, self.scale,
         )
         self.layout_container_layout.addWidget(self.layout_preview)
 
